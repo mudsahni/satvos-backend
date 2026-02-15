@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS idx_documents_tenant_collection_created;

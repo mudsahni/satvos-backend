@@ -31,6 +31,14 @@ func (m *MockFileService) GetByID(ctx context.Context, tenantID, fileID uuid.UUI
 	return args.Get(0).(*domain.FileMeta), args.Error(1)
 }
 
+func (m *MockFileService) GetByIDForUser(ctx context.Context, tenantID, fileID, userID uuid.UUID, role domain.UserRole) (*domain.FileMeta, error) {
+	args := m.Called(ctx, tenantID, fileID, userID, role)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.FileMeta), args.Error(1)
+}
+
 func (m *MockFileService) List(ctx context.Context, tenantID uuid.UUID, offset, limit int) ([]domain.FileMeta, int, error) {
 	args := m.Called(ctx, tenantID, offset, limit)
 	if args.Get(0) == nil {

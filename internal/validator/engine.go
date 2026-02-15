@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,6 +14,13 @@ import (
 	"satvos/internal/port"
 	"satvos/internal/validator/invoice"
 )
+
+const defaultRuleCacheTTL = 5 * time.Minute
+
+type ruleCacheEntry struct {
+	rules     []domain.DocumentValidationRule
+	expiresAt time.Time
+}
 
 // ValidationResultEntry represents a single validation result stored in the JSONB array.
 type ValidationResultEntry struct {
@@ -28,9 +36,11 @@ type ValidationResultEntry struct {
 
 // Engine orchestrates document validation.
 type Engine struct {
-	registry *Registry
-	ruleRepo port.DocumentValidationRuleRepository
-	docRepo  port.DocumentRepository
+	registry  *Registry
+	ruleRepo  port.DocumentValidationRuleRepository
+	docRepo   port.DocumentRepository
+	ruleCache map[string]ruleCacheEntry
+	cacheMu   sync.RWMutex
 }
 
 // NewEngine creates a new validation engine.
@@ -40,9 +50,40 @@ func NewEngine(
 	docRepo port.DocumentRepository,
 ) *Engine {
 	return &Engine{
-		registry: registry,
-		ruleRepo: ruleRepo,
-		docRepo:  docRepo,
+		registry:  registry,
+		ruleRepo:  ruleRepo,
+		docRepo:   docRepo,
+		ruleCache: make(map[string]ruleCacheEntry),
+	}
+}
+
+// ruleCacheKey builds a cache key for rules.
+func ruleCacheKey(tenantID uuid.UUID, docType string, collectionID *uuid.UUID) string {
+	cid := "none"
+	if collectionID != nil {
+		cid = collectionID.String()
+	}
+	return tenantID.String() + ":" + docType + ":" + cid
+}
+
+// getCachedRules returns cached rules if available and not expired.
+func (e *Engine) getCachedRules(key string) ([]domain.DocumentValidationRule, bool) {
+	e.cacheMu.RLock()
+	defer e.cacheMu.RUnlock()
+	entry, ok := e.ruleCache[key]
+	if !ok || time.Now().After(entry.expiresAt) {
+		return nil, false
+	}
+	return entry.rules, true
+}
+
+// setCachedRules stores rules in the cache with a TTL.
+func (e *Engine) setCachedRules(key string, rules []domain.DocumentValidationRule) {
+	e.cacheMu.Lock()
+	defer e.cacheMu.Unlock()
+	e.ruleCache[key] = ruleCacheEntry{
+		rules:     rules,
+		expiresAt: time.Now().Add(defaultRuleCacheTTL),
 	}
 }
 
@@ -58,14 +99,19 @@ func (e *Engine) ValidateDocument(ctx context.Context, tenantID, docID uuid.UUID
 		return fmt.Errorf("ensuring builtin rules: %w", err)
 	}
 
-	// Load all active rules
+	// Load all active rules (with cache)
 	var collectionID *uuid.UUID
 	if doc.CollectionID != (uuid.UUID{}) {
 		collectionID = &doc.CollectionID
 	}
-	rules, err := e.ruleRepo.ListByDocumentType(ctx, tenantID, doc.DocumentType, collectionID)
-	if err != nil {
-		return fmt.Errorf("loading rules: %w", err)
+	cacheKey := ruleCacheKey(tenantID, doc.DocumentType, collectionID)
+	rules, cached := e.getCachedRules(cacheKey)
+	if !cached {
+		rules, err = e.ruleRepo.ListByDocumentType(ctx, tenantID, doc.DocumentType, collectionID)
+		if err != nil {
+			return fmt.Errorf("loading rules: %w", err)
+		}
+		e.setCachedRules(cacheKey, rules)
 	}
 
 	// Parse structured data into typed struct
@@ -92,7 +138,32 @@ func (e *Engine) ValidateDocument(ctx context.Context, tenantID, docID uuid.UUID
 				log.Printf("validator.Engine: no validator registered for builtin key %q", *rule.BuiltinRuleKey)
 				continue
 			}
-			vResults := v.Validate(ctx, &inv)
+			vResults, panicked := safeValidate(ctx, v, &inv, *rule.BuiltinRuleKey)
+			if panicked {
+				allResults = append(allResults, ValidationResultEntry{
+					RuleID:                 rule.ID,
+					Passed:                 false,
+					FieldPath:              "",
+					ExpectedValue:          "",
+					ActualValue:            "",
+					Message:                fmt.Sprintf("validator panicked: %s", *rule.BuiltinRuleKey),
+					ReconciliationCritical: rule.ReconciliationCritical,
+					ValidatedAt:            now,
+				})
+				if rule.Severity == domain.ValidationSeverityError {
+					hasError = true
+				} else {
+					hasWarning = true
+				}
+				if rule.ReconciliationCritical {
+					if rule.Severity == domain.ValidationSeverityError {
+						hasReconError = true
+					} else {
+						hasReconWarning = true
+					}
+				}
+				continue
+			}
 			for _, vr := range vResults {
 				allResults = append(allResults, ValidationResultEntry{
 					RuleID:                 rule.ID,
@@ -162,6 +233,18 @@ func (e *Engine) ValidateDocument(ctx context.Context, tenantID, docID uuid.UUID
 	return nil
 }
 
+// safeValidate runs a validator with panic recovery. If the validator panics,
+// it returns nil results and panicked=true.
+func safeValidate(ctx context.Context, v Validator, inv *invoice.GSTInvoice, ruleKey string) (results []invoice.ValidationResult, panicked bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("validator.Engine: PANIC in validator %q: %v", ruleKey, r)
+			panicked = true
+		}
+	}()
+	return v.Validate(ctx, inv), false
+}
+
 // EnsureBuiltinRules lazy-seeds all built-in rules for a tenant+document type combination.
 func (e *Engine) EnsureBuiltinRules(ctx context.Context, tenantID uuid.UUID, documentType string, createdBy uuid.UUID) error {
 	existing, err := e.ruleRepo.ListBuiltinKeys(ctx, tenantID, documentType)
@@ -174,6 +257,7 @@ func (e *Engine) EnsureBuiltinRules(ctx context.Context, tenantID uuid.UUID, doc
 		existingSet[key] = true
 	}
 
+	seeded := false
 	for _, v := range e.registry.All() {
 		if existingSet[v.RuleKey()] {
 			continue
@@ -196,9 +280,27 @@ func (e *Engine) EnsureBuiltinRules(ctx context.Context, tenantID uuid.UUID, doc
 		if err := e.ruleRepo.Create(ctx, rule); err != nil {
 			return fmt.Errorf("seeding builtin rule %s: %w", v.RuleKey(), err)
 		}
+		seeded = true
+	}
+
+	// Invalidate cache if new rules were seeded
+	if seeded {
+		e.invalidateCacheForTenant(tenantID)
 	}
 
 	return nil
+}
+
+// invalidateCacheForTenant removes all cached entries for a given tenant.
+func (e *Engine) invalidateCacheForTenant(tenantID uuid.UUID) {
+	prefix := tenantID.String() + ":"
+	e.cacheMu.Lock()
+	defer e.cacheMu.Unlock()
+	for key := range e.ruleCache {
+		if len(key) >= len(prefix) && key[:len(prefix)] == prefix {
+			delete(e.ruleCache, key)
+		}
+	}
 }
 
 // GetValidation loads validation results and computes field statuses for a document.

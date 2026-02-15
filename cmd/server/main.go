@@ -185,12 +185,19 @@ func run() error {
 	reportRepo := postgres.NewReportRepo(db)
 	reportSvc := service.NewReportService(reportRepo)
 
-	var documentSvc service.DocumentService
-	if mergeDocParser != nil {
-		documentSvc = service.NewDocumentServiceWithMerge(docRepo, fileRepo, userRepo, collectionPermRepo, documentTagRepo, documentParser, mergeDocParser, s3Client, validationEngine, auditRepo, summaryRepo)
-	} else {
-		documentSvc = service.NewDocumentService(docRepo, fileRepo, userRepo, collectionPermRepo, documentTagRepo, documentParser, s3Client, validationEngine, auditRepo, summaryRepo)
-	}
+	documentSvc := service.NewDocumentService(&service.DocumentServiceDeps{
+		DocRepo:     docRepo,
+		FileRepo:    fileRepo,
+		UserRepo:    userRepo,
+		PermRepo:    collectionPermRepo,
+		TagRepo:     documentTagRepo,
+		AuditRepo:   auditRepo,
+		SummaryRepo: summaryRepo,
+		Parser:      documentParser,
+		MergeParser: mergeDocParser, // nil when single-parse mode
+		Storage:     s3Client,
+		Validator:   validationEngine,
+	})
 
 	// Auto-create free tier tenant if it doesn't exist
 	if _, ftErr := tenantRepo.GetBySlug(context.Background(), cfg.FreeTier.TenantSlug); ftErr != nil {
@@ -241,9 +248,11 @@ func run() error {
 
 	// Start parse queue worker
 	queueCfg := service.ParseQueueConfig{
-		PollInterval: time.Duration(cfg.Queue.PollIntervalSecs) * time.Second,
-		MaxRetries:   cfg.Queue.MaxRetries,
-		Concurrency:  cfg.Queue.Concurrency,
+		PollInterval:       time.Duration(cfg.Queue.PollIntervalSecs) * time.Second,
+		MaxRetries:         cfg.Queue.MaxRetries,
+		Concurrency:        cfg.Queue.Concurrency,
+		StaleThreshold:     10 * time.Minute,
+		StaleSweepInterval: 5 * time.Minute,
 	}
 	queueWorker := service.NewParseQueueWorker(docRepo, documentSvc, queueCfg)
 	queueCtx, queueStop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

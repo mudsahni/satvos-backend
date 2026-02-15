@@ -34,6 +34,7 @@ func TestParseQueueWorker_PollsAndDispatchesParsing(t *testing.T) {
 	}
 
 	// First poll returns one doc, subsequent polls return empty
+	docRepo.On("ResetStaleProcessing", mock.Anything, mock.AnythingOfType("time.Time")).Return(0, nil).Maybe()
 	docRepo.On("ClaimQueued", mock.Anything, mock.AnythingOfType("int")).
 		Return([]domain.Document{doc}, nil).Once()
 	docRepo.On("ClaimQueued", mock.Anything, mock.AnythingOfType("int")).
@@ -75,6 +76,7 @@ func TestParseQueueWorker_RespectsConcurrencyCap(t *testing.T) {
 		Concurrency:  2,
 	}
 
+	docRepo.On("ResetStaleProcessing", mock.Anything, mock.AnythingOfType("time.Time")).Return(0, nil).Maybe()
 	// Return empty to verify the limit parameter
 	docRepo.On("ClaimQueued", mock.Anything, mock.AnythingOfType("int")).
 		Return([]domain.Document{}, nil).Maybe()
@@ -107,6 +109,7 @@ func TestParseQueueWorker_CleanShutdown(t *testing.T) {
 	docRepo := new(mocks.MockDocumentRepo)
 	docSvc := new(mocks.MockDocumentService)
 
+	docRepo.On("ResetStaleProcessing", mock.Anything, mock.AnythingOfType("time.Time")).Return(0, nil).Maybe()
 	docRepo.On("ClaimQueued", mock.Anything, mock.AnythingOfType("int")).
 		Return([]domain.Document{}, nil).Maybe()
 
@@ -139,6 +142,7 @@ func TestParseQueueWorker_EmptyQueueDoesNothing(t *testing.T) {
 	docRepo := new(mocks.MockDocumentRepo)
 	docSvc := new(mocks.MockDocumentService)
 
+	docRepo.On("ResetStaleProcessing", mock.Anything, mock.AnythingOfType("time.Time")).Return(0, nil).Maybe()
 	docRepo.On("ClaimQueued", mock.Anything, mock.AnythingOfType("int")).
 		Return([]domain.Document{}, nil).Maybe()
 
@@ -168,6 +172,7 @@ func TestParseQueueWorker_ClaimQueuedError(t *testing.T) {
 	docRepo := new(mocks.MockDocumentRepo)
 	docSvc := new(mocks.MockDocumentService)
 
+	docRepo.On("ResetStaleProcessing", mock.Anything, mock.AnythingOfType("time.Time")).Return(0, nil).Maybe()
 	// Return an error on poll
 	docRepo.On("ClaimQueued", mock.Anything, mock.AnythingOfType("int")).
 		Return(nil, errors.New("db connection error")).Maybe()

@@ -98,31 +98,14 @@ func NewCollectionService(
 	}
 }
 
-// effectivePermission computes the effective collection permission for a user
-// based on their tenant role and explicit collection permission.
-// effective = max(implicit_from_role, explicit_collection_perm)
+// effectivePermission delegates to the shared EffectiveCollectionPerm helper.
 func (s *collectionService) effectivePermission(ctx context.Context, collectionID, userID uuid.UUID, role domain.UserRole) domain.CollectionPermission {
-	implicit := domain.ImplicitCollectionPerm(role)
-
-	explicit := domain.CollectionPermission("")
-	perm, err := s.permRepo.GetByCollectionAndUser(ctx, collectionID, userID)
-	if err == nil {
-		explicit = perm.Permission
-	}
-
-	if domain.CollectionPermLevel(implicit) >= domain.CollectionPermLevel(explicit) {
-		return implicit
-	}
-	return explicit
+	return EffectiveCollectionPerm(ctx, s.permRepo, collectionID, userID, role)
 }
 
-// requirePermission checks that the user's effective permission meets the minimum level.
+// requirePermission delegates to the shared RequireCollectionPerm helper.
 func (s *collectionService) requirePermission(ctx context.Context, collectionID, userID uuid.UUID, role domain.UserRole, minLevel domain.CollectionPermission) error {
-	eff := s.effectivePermission(ctx, collectionID, userID, role)
-	if domain.CollectionPermLevel(eff) < domain.CollectionPermLevel(minLevel) {
-		return domain.ErrCollectionPermDenied
-	}
-	return nil
+	return RequireCollectionPerm(ctx, s.permRepo, collectionID, userID, role, minLevel)
 }
 
 func (s *collectionService) Create(ctx context.Context, input *CreateCollectionInput) (*domain.Collection, error) {

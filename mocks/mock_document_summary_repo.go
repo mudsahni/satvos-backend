@@ -22,3 +22,8 @@ func (m *MockDocumentSummaryRepo) UpdateStatuses(ctx context.Context, documentID
 	args := m.Called(ctx, documentID, statuses)
 	return args.Error(0)
 }
+
+func (m *MockDocumentSummaryRepo) ReplaceLineItems(ctx context.Context, documentID, tenantID uuid.UUID, items []domain.DocumentLineItem) error {
+	args := m.Called(ctx, documentID, tenantID, items)
+	return args.Error(0)
+}

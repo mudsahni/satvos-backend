@@ -84,12 +84,18 @@ func parseReportFilters(c *gin.Context) (*domain.ReportFilters, error) {
 		if err != nil {
 			return nil, fmt.Errorf("invalid 'offset': must be an integer")
 		}
+		if offset < 0 {
+			offset = 0
+		}
 		filters.Offset = offset
 	}
 	if limitStr := c.Query("limit"); limitStr != "" {
 		limit, err := strconv.Atoi(limitStr)
 		if err != nil {
 			return nil, fmt.Errorf("invalid 'limit': must be an integer")
+		}
+		if limit <= 0 || limit > 100 {
+			limit = 20
 		}
 		filters.Limit = limit
 	}

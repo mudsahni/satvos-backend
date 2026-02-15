@@ -102,27 +102,9 @@ func (s *registrationService) Register(ctx context.Context, input RegisterInput)
 	}
 
 	// Create personal collection
-	collection := &domain.Collection{
-		ID:          uuid.New(),
-		TenantID:    tenant.ID,
-		Name:        input.FullName + "'s Invoices",
-		Description: "Personal invoice collection",
-		CreatedBy:   user.ID,
-	}
-	if err := s.collRepo.Create(ctx, collection); err != nil {
-		return nil, fmt.Errorf("creating personal collection: %w", err)
-	}
-
-	// Assign owner permission on the collection
-	ownerPerm := &domain.CollectionPermissionEntry{
-		CollectionID: collection.ID,
-		TenantID:     tenant.ID,
-		UserID:       user.ID,
-		Permission:   domain.CollectionPermOwner,
-		GrantedBy:    user.ID,
-	}
-	if err := s.permRepo.Upsert(ctx, ownerPerm); err != nil {
-		return nil, fmt.Errorf("assigning collection permission: %w", err)
+	collection, err := CreatePersonalCollection(ctx, s.collRepo, s.permRepo, tenant.ID, user.ID, input.FullName)
+	if err != nil {
+		return nil, err
 	}
 
 	// Generate tokens by logging in

@@ -3,7 +3,6 @@ package handler
 import (
 	"log"
 	"net/http"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -127,14 +126,7 @@ func (h *FileHandler) List(c *gin.Context) {
 	}
 	role := domain.UserRole(middleware.GetRole(c))
 
-	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
-	if limit <= 0 || limit > 100 {
-		limit = 20
-	}
-	if offset < 0 {
-		offset = 0
-	}
+	offset, limit := parsePagination(c)
 
 	var files []domain.FileMeta
 	var total int
@@ -182,15 +174,9 @@ func (h *FileHandler) GetByID(c *gin.Context) {
 		return
 	}
 
-	meta, err := h.fileService.GetByID(c.Request.Context(), tenantID, fileID)
+	meta, err := h.fileService.GetByIDForUser(c.Request.Context(), tenantID, fileID, userID, role)
 	if err != nil {
 		HandleError(c, err)
-		return
-	}
-
-	// Free users can only see their own files
-	if role == domain.RoleFree && meta.UploadedBy != userID {
-		RespondError(c, http.StatusNotFound, "NOT_FOUND", "resource not found")
 		return
 	}
 

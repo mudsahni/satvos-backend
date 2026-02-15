@@ -82,6 +82,37 @@ func (r *documentSummaryRepo) Upsert(ctx context.Context, summary *domain.Docume
 	return nil
 }
 
+func (r *documentSummaryRepo) ReplaceLineItems(ctx context.Context, documentID, tenantID uuid.UUID, items []domain.DocumentLineItem) error {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("beginning line items transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.ExecContext(ctx, "DELETE FROM document_line_items WHERE document_id = $1", documentID); err != nil {
+		return fmt.Errorf("deleting old line items: %w", err)
+	}
+
+	if len(items) > 0 {
+		query := `INSERT INTO document_line_items (
+			document_id, tenant_id, item_index, hsn_sac_code, description,
+			quantity, unit_price, discount, taxable_amount,
+			cgst_rate, cgst_amount, sgst_rate, sgst_amount,
+			igst_rate, igst_amount, total
+		) VALUES (
+			:document_id, :tenant_id, :item_index, :hsn_sac_code, :description,
+			:quantity, :unit_price, :discount, :taxable_amount,
+			:cgst_rate, :cgst_amount, :sgst_rate, :sgst_amount,
+			:igst_rate, :igst_amount, :total
+		)`
+		if _, err := tx.NamedExecContext(ctx, query, items); err != nil {
+			return fmt.Errorf("inserting line items: %w", err)
+		}
+	}
+
+	return tx.Commit()
+}
+
 func (r *documentSummaryRepo) UpdateStatuses(ctx context.Context, documentID uuid.UUID, statuses domain.SummaryStatusUpdate) error {
 	query := `
 		UPDATE document_summaries SET

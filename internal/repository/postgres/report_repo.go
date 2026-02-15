@@ -120,73 +120,105 @@ func periodEnd(start time.Time, granularity string) time.Time {
 	}
 }
 
-func (r *reportRepo) SellerSummary(ctx context.Context, tenantID uuid.UUID, filters *domain.ReportFilters) ([]domain.SellerSummaryRow, int, error) {
+// partySummaryRow is a generic intermediate scan target for seller/buyer summary queries.
+type partySummaryRow struct {
+	PartyGSTIN          string     `db:"party_gstin"`
+	PartyName           string     `db:"party_name"`
+	PartyState          string     `db:"party_state"`
+	InvoiceCount        int        `db:"invoice_count"`
+	TotalAmount         float64    `db:"total_amount"`
+	TotalTax            float64    `db:"total_tax"`
+	CGST                float64    `db:"cgst"`
+	SGST                float64    `db:"sgst"`
+	IGST                float64    `db:"igst"`
+	AverageInvoiceValue float64    `db:"average_invoice_value"`
+	FirstInvoiceDate    *time.Time `db:"first_invoice_date"`
+	LastInvoiceDate     *time.Time `db:"last_invoice_date"`
+}
+
+// partySummaryQuery runs a parameterized party summary query using the specified column prefix ("seller" or "buyer").
+func (r *reportRepo) partySummaryQuery(ctx context.Context, tenantID uuid.UUID, filters *domain.ReportFilters, partyPrefix string) ([]partySummaryRow, int, error) {
 	whereClause, args := buildWhereClause(tenantID, filters)
 
 	dataQuery := fmt.Sprintf(`SELECT
-		seller_gstin, MAX(seller_name) AS seller_name, MAX(seller_state) AS seller_state,
+		%[1]s_gstin AS party_gstin, MAX(%[1]s_name) AS party_name, MAX(%[1]s_state) AS party_state,
 		COUNT(*) AS invoice_count, COALESCE(SUM(total_amount), 0) AS total_amount,
 		COALESCE(SUM(cgst + sgst + igst), 0) AS total_tax,
 		COALESCE(SUM(cgst), 0) AS cgst, COALESCE(SUM(sgst), 0) AS sgst, COALESCE(SUM(igst), 0) AS igst,
 		COALESCE(AVG(total_amount), 0) AS average_invoice_value,
 		MIN(invoice_date) AS first_invoice_date, MAX(invoice_date) AS last_invoice_date
 	FROM document_summaries ds
-	%s
-	AND seller_gstin IS NOT NULL AND seller_gstin != ''
-	GROUP BY seller_gstin
+	%[2]s
+	AND %[1]s_gstin IS NOT NULL AND %[1]s_gstin != ''
+	GROUP BY %[1]s_gstin
 	ORDER BY total_amount DESC
-	OFFSET %d LIMIT %d`, whereClause, filters.Offset, filters.Limit)
+	OFFSET %[3]d LIMIT %[4]d`, partyPrefix, whereClause, filters.Offset, filters.Limit)
 
-	var rows []domain.SellerSummaryRow
+	var rows []partySummaryRow
 	if err := sqlx.SelectContext(ctx, r.db, &rows, dataQuery, args...); err != nil {
-		return nil, 0, fmt.Errorf("reportRepo.SellerSummary data: %w", err)
+		return nil, 0, fmt.Errorf("reportRepo.%sSummary data: %w", partyPrefix, err)
 	}
 
-	countQuery := fmt.Sprintf(`SELECT COUNT(DISTINCT seller_gstin)
+	countQuery := fmt.Sprintf(`SELECT COUNT(DISTINCT %[1]s_gstin)
 	FROM document_summaries ds
-	%s
-	AND seller_gstin IS NOT NULL AND seller_gstin != ''`, whereClause)
+	%[2]s
+	AND %[1]s_gstin IS NOT NULL AND %[1]s_gstin != ''`, partyPrefix, whereClause)
 
 	var total int
 	if err := r.db.GetContext(ctx, &total, countQuery, args...); err != nil {
-		return nil, 0, fmt.Errorf("reportRepo.SellerSummary count: %w", err)
+		return nil, 0, fmt.Errorf("reportRepo.%sSummary count: %w", partyPrefix, err)
 	}
 
 	return rows, total, nil
 }
 
+func (r *reportRepo) SellerSummary(ctx context.Context, tenantID uuid.UUID, filters *domain.ReportFilters) ([]domain.SellerSummaryRow, int, error) {
+	partyRows, total, err := r.partySummaryQuery(ctx, tenantID, filters, "seller")
+	if err != nil {
+		return nil, 0, err
+	}
+	rows := make([]domain.SellerSummaryRow, len(partyRows))
+	for i := range partyRows {
+		rows[i] = domain.SellerSummaryRow{
+			SellerGSTIN:         partyRows[i].PartyGSTIN,
+			SellerName:          partyRows[i].PartyName,
+			SellerState:         partyRows[i].PartyState,
+			InvoiceCount:        partyRows[i].InvoiceCount,
+			TotalAmount:         partyRows[i].TotalAmount,
+			TotalTax:            partyRows[i].TotalTax,
+			CGST:                partyRows[i].CGST,
+			SGST:                partyRows[i].SGST,
+			IGST:                partyRows[i].IGST,
+			AverageInvoiceValue: partyRows[i].AverageInvoiceValue,
+			FirstInvoiceDate:    partyRows[i].FirstInvoiceDate,
+			LastInvoiceDate:     partyRows[i].LastInvoiceDate,
+		}
+	}
+	return rows, total, nil
+}
+
 func (r *reportRepo) BuyerSummary(ctx context.Context, tenantID uuid.UUID, filters *domain.ReportFilters) ([]domain.BuyerSummaryRow, int, error) {
-	whereClause, args := buildWhereClause(tenantID, filters)
-
-	dataQuery := fmt.Sprintf(`SELECT
-		buyer_gstin, MAX(buyer_name) AS buyer_name, MAX(buyer_state) AS buyer_state,
-		COUNT(*) AS invoice_count, COALESCE(SUM(total_amount), 0) AS total_amount,
-		COALESCE(SUM(cgst + sgst + igst), 0) AS total_tax,
-		COALESCE(SUM(cgst), 0) AS cgst, COALESCE(SUM(sgst), 0) AS sgst, COALESCE(SUM(igst), 0) AS igst,
-		COALESCE(AVG(total_amount), 0) AS average_invoice_value,
-		MIN(invoice_date) AS first_invoice_date, MAX(invoice_date) AS last_invoice_date
-	FROM document_summaries ds
-	%s
-	AND buyer_gstin IS NOT NULL AND buyer_gstin != ''
-	GROUP BY buyer_gstin
-	ORDER BY total_amount DESC
-	OFFSET %d LIMIT %d`, whereClause, filters.Offset, filters.Limit)
-
-	var rows []domain.BuyerSummaryRow
-	if err := sqlx.SelectContext(ctx, r.db, &rows, dataQuery, args...); err != nil {
-		return nil, 0, fmt.Errorf("reportRepo.BuyerSummary data: %w", err)
+	partyRows, total, err := r.partySummaryQuery(ctx, tenantID, filters, "buyer")
+	if err != nil {
+		return nil, 0, err
 	}
-
-	countQuery := fmt.Sprintf(`SELECT COUNT(DISTINCT buyer_gstin)
-	FROM document_summaries ds
-	%s
-	AND buyer_gstin IS NOT NULL AND buyer_gstin != ''`, whereClause)
-
-	var total int
-	if err := r.db.GetContext(ctx, &total, countQuery, args...); err != nil {
-		return nil, 0, fmt.Errorf("reportRepo.BuyerSummary count: %w", err)
+	rows := make([]domain.BuyerSummaryRow, len(partyRows))
+	for i := range partyRows {
+		rows[i] = domain.BuyerSummaryRow{
+			BuyerGSTIN:          partyRows[i].PartyGSTIN,
+			BuyerName:           partyRows[i].PartyName,
+			BuyerState:          partyRows[i].PartyState,
+			InvoiceCount:        partyRows[i].InvoiceCount,
+			TotalAmount:         partyRows[i].TotalAmount,
+			TotalTax:            partyRows[i].TotalTax,
+			CGST:                partyRows[i].CGST,
+			SGST:                partyRows[i].SGST,
+			IGST:                partyRows[i].IGST,
+			AverageInvoiceValue: partyRows[i].AverageInvoiceValue,
+			FirstInvoiceDate:    partyRows[i].FirstInvoiceDate,
+			LastInvoiceDate:     partyRows[i].LastInvoiceDate,
+		}
 	}
-
 	return rows, total, nil
 }
 
@@ -368,104 +400,72 @@ func (r *reportRepo) TaxSummary(ctx context.Context, tenantID uuid.UUID, filters
 	return rows, nil
 }
 
-// hsnSummaryDBRow is an intermediate struct for scanning HSN summary results.
-type hsnSummaryDBRow struct {
-	HSNCode       string  `db:"hsn_code"`
-	Description   string  `db:"description"`
-	InvoiceCount  int     `db:"invoice_count"`
-	LineItemCount int     `db:"line_item_count"`
-	TotalQuantity float64 `db:"total_quantity"`
-	TaxableAmount float64 `db:"taxable_amount"`
-	CGST          float64 `db:"cgst"`
-	SGST          float64 `db:"sgst"`
-	IGST          float64 `db:"igst"`
-	TotalTax      float64 `db:"total_tax"`
-}
-
 func (r *reportRepo) HSNSummary(ctx context.Context, tenantID uuid.UUID, filters *domain.ReportFilters) ([]domain.HSNSummaryRow, int, error) {
 	args := []interface{}{tenantID}
 	argN := 2
 
-	// Build WHERE clause for documents table (not document_summaries)
-	whereClause := "WHERE d.tenant_id = $1 AND d.parsing_status = 'completed'"
-	whereClause += " AND item->>'hsn_sac_code' IS NOT NULL AND item->>'hsn_sac_code' != ''"
+	// Build WHERE clause for document_line_items joined with document_summaries
+	whereClause := "WHERE li.tenant_id = $1 AND li.hsn_sac_code != ''"
 
-	// Date filters via subquery on document_summaries
-	if filters.From != nil || filters.To != nil {
-		subWhere := "SELECT document_id FROM document_summaries WHERE tenant_id = $1"
-		if filters.From != nil {
-			subWhere += fmt.Sprintf(" AND invoice_date >= $%d", argN)
-			args = append(args, *filters.From)
-			argN++
-		}
-		if filters.To != nil {
-			subWhere += fmt.Sprintf(" AND invoice_date <= $%d", argN)
-			args = append(args, *filters.To)
-			argN++
-		}
-		whereClause += fmt.Sprintf(" AND d.id IN (%s)", subWhere)
+	if filters.From != nil {
+		whereClause += fmt.Sprintf(" AND ds.invoice_date >= $%d", argN)
+		args = append(args, *filters.From)
+		argN++
 	}
-
-	// Collection filter
+	if filters.To != nil {
+		whereClause += fmt.Sprintf(" AND ds.invoice_date <= $%d", argN)
+		args = append(args, *filters.To)
+		argN++
+	}
 	if filters.CollectionID != nil {
-		whereClause += fmt.Sprintf(" AND d.collection_id = $%d", argN)
+		whereClause += fmt.Sprintf(" AND ds.collection_id = $%d", argN)
 		args = append(args, *filters.CollectionID)
+		argN++
+	}
+	if filters.SellerGSTIN != "" {
+		whereClause += fmt.Sprintf(" AND ds.seller_gstin = $%d", argN)
+		args = append(args, filters.SellerGSTIN)
+		argN++
+	}
+	if filters.BuyerGSTIN != "" {
+		whereClause += fmt.Sprintf(" AND ds.buyer_gstin = $%d", argN)
+		args = append(args, filters.BuyerGSTIN)
 		argN++
 	}
 
 	// Role scoping for viewer/free
 	if filters.UserRole != domain.RoleAdmin && filters.UserRole != domain.RoleManager && filters.UserRole != domain.RoleMember {
-		whereClause += fmt.Sprintf(" AND d.collection_id IN (SELECT collection_id FROM collection_permissions WHERE user_id = $%d)", argN)
+		whereClause += fmt.Sprintf(" AND ds.collection_id IN (SELECT collection_id FROM collection_permissions WHERE user_id = $%d)", argN)
 		args = append(args, filters.UserID)
 		argN++ //nolint:ineffassign // argN kept incremented for consistency
 	}
 
 	dataQuery := fmt.Sprintf(`SELECT
-		item->>'hsn_sac_code' AS hsn_code,
-		MAX(item->>'description') AS description,
-		COUNT(DISTINCT d.id) AS invoice_count,
+		li.hsn_sac_code AS hsn_code,
+		MAX(li.description) AS description,
+		COUNT(DISTINCT li.document_id) AS invoice_count,
 		COUNT(*) AS line_item_count,
-		COALESCE(SUM((item->>'quantity')::numeric), 0) AS total_quantity,
-		COALESCE(SUM((item->>'taxable_amount')::numeric), 0) AS taxable_amount,
-		COALESCE(SUM((item->>'cgst_amount')::numeric), 0) AS cgst,
-		COALESCE(SUM((item->>'sgst_amount')::numeric), 0) AS sgst,
-		COALESCE(SUM((item->>'igst_amount')::numeric), 0) AS igst,
-		COALESCE(SUM(
-			COALESCE((item->>'cgst_amount')::numeric, 0) +
-			COALESCE((item->>'sgst_amount')::numeric, 0) +
-			COALESCE((item->>'igst_amount')::numeric, 0)
-		), 0) AS total_tax
-	FROM documents d, jsonb_array_elements(d.structured_data->'line_items') AS item
+		COALESCE(SUM(li.quantity), 0) AS total_quantity,
+		COALESCE(SUM(li.taxable_amount), 0) AS taxable_amount,
+		COALESCE(SUM(li.cgst_amount), 0) AS cgst,
+		COALESCE(SUM(li.sgst_amount), 0) AS sgst,
+		COALESCE(SUM(li.igst_amount), 0) AS igst,
+		COALESCE(SUM(li.cgst_amount + li.sgst_amount + li.igst_amount), 0) AS total_tax
+	FROM document_line_items li
+	JOIN document_summaries ds ON ds.document_id = li.document_id
 	%s
-	GROUP BY hsn_code
+	GROUP BY li.hsn_sac_code
 	ORDER BY taxable_amount DESC
 	OFFSET %d LIMIT %d`, whereClause, filters.Offset, filters.Limit)
 
-	var dbRows []hsnSummaryDBRow
-	if err := sqlx.SelectContext(ctx, r.db, &dbRows, dataQuery, args...); err != nil {
+	var rows []domain.HSNSummaryRow
+	if err := sqlx.SelectContext(ctx, r.db, &rows, dataQuery, args...); err != nil {
 		return nil, 0, fmt.Errorf("reportRepo.HSNSummary data: %w", err)
 	}
 
-	// Convert to domain rows
-	rows := make([]domain.HSNSummaryRow, len(dbRows))
-	for i := range dbRows {
-		rows[i] = domain.HSNSummaryRow{
-			HSNCode:       dbRows[i].HSNCode,
-			Description:   dbRows[i].Description,
-			InvoiceCount:  dbRows[i].InvoiceCount,
-			LineItemCount: dbRows[i].LineItemCount,
-			TotalQuantity: dbRows[i].TotalQuantity,
-			TaxableAmount: dbRows[i].TaxableAmount,
-			CGST:          dbRows[i].CGST,
-			SGST:          dbRows[i].SGST,
-			IGST:          dbRows[i].IGST,
-			TotalTax:      dbRows[i].TotalTax,
-		}
-	}
-
-	// Count query
-	countQuery := fmt.Sprintf(`SELECT COUNT(DISTINCT item->>'hsn_sac_code')
-	FROM documents d, jsonb_array_elements(d.structured_data->'line_items') AS item
+	countQuery := fmt.Sprintf(`SELECT COUNT(DISTINCT li.hsn_sac_code)
+	FROM document_line_items li
+	JOIN document_summaries ds ON ds.document_id = li.document_id
 	%s`, whereClause)
 
 	var total int
