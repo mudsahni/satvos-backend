@@ -38,7 +38,7 @@ internal/
   handler/
     auth_handler.go          login, refresh, register, verify-email, resend-verification, forgot/reset-password, social-login
     file_handler.go          upload, list, get, delete (free: own files only)
-    collection_handler.go    CRUD, batch upload, permissions, CSV export
+    collection_handler.go    CRUD, batch upload, permissions, CSV export, Tally XML export
     document_handler.go      CRUD, retry, review, assignment, review-queue, validation, tags, search, structured-data edit, audit trail
     user_handler.go          CRUD /users
     tenant_handler.go        CRUD /admin/tenants
@@ -83,6 +83,11 @@ internal/
     ses/ses_sender.go        AWS SES v2 EmailSender implementation
     noop/noop_sender.go      No-op EmailSender (logs URL to stdout)
   csvexport/writer.go        CSV export (33 columns, UTF-8 BOM, batched)
+  tallyexport/               Tally Prime XML export (purchase vouchers)
+    voucher.go               Data model structs (Voucher, LedgerEntry, InventoryEntry, TallyExportOptions)
+    template.go              text/template XML template + xmlEscape, parsed at init()
+    convert.go               GSTInvoice → Voucher conversion, tax ledger grouping by rate
+    writer.go                Writer (accumulate-then-flush), BuildFilename
   storage/s3/s3_client.go    S3 implementation (supports LocalStack)
   auth/google/verifier.go    Google ID token verification via tokeninfo endpoint
   parser/
@@ -187,6 +192,7 @@ Request → Gin Router → Middleware (Logger → Auth → TenantGuard) → Hand
 - **Social login**: `POST /auth/social-login` (Google only). Frontend sends ID token → backend validates via `SocialTokenVerifier`. Auto-links if email matches existing user. Auto-verifies email. New users get personal collection. Config: `SATVOS_GOOGLE_AUTH_CLIENT_ID` (empty = disabled). Only for free-tier tenant. OAuth-only users (`password_hash=""`) blocked from password login (`ErrPasswordLoginNotAllowed`)
 - **Collections**: Permission-based (owner/editor/viewer) + role hierarchy. `document_count` computed via SQL subquery. `EffectivePermissions` batch-optimized. `SetPermission` validates target user belongs to same tenant
 - **CSV export**: `GET /collections/:id/export/csv` — 33 columns, reconciliation fields first, UTF-8 BOM, batched 200 docs
+- **Tally XML export**: `GET /collections/:id/export/tally?company_name=<optional>` — Tally Prime purchase voucher XML. Converts parsed invoices to vouchers with inventory entries, tax ledger grouping by rate (CGST/SGST/IGST), convention-based ledger naming (`Purchase@{rate}%Gst`, `Input Cgst @{rate}%`). Uses `text/template` (not `encoding/xml`) due to Tally's non-standard element names. Batched 200 docs, accumulate-then-flush. `company_name` defaults to collection name. `REMOTEID` = `tenantID-docID` for idempotent reimport
 - **Document parsing**: Background goroutine. `CreateAndParse`/`RetryParse` return **copies** to prevent data races. Status: pending → processing → completed/failed/queued
 - **Document tags**: Key-value pairs with `source` (user/auto). Auto-tags extracted from parsed data, regenerated on retry/edit
 - **Manual edit**: Validates JSON, sets confidence→1.0, resets review, re-extracts auto-tags, re-runs validation, sets provenance to `manual_edit`
@@ -209,6 +215,7 @@ Go 1.24, Gin, PostgreSQL 16 (sqlx + pgx/v5), AWS S3 (aws-sdk-go-v2), AWS SES v2,
 - **Adding a parser provider**: Implement `port.DocumentParser` in `parser/<provider>/`, register via `parser.RegisterProvider()` in `main.go`, use `parser.BuildGSTInvoicePrompt()`
 - **Adding a validation rule**: Create in `validator/invoice/`, add to `*Validators()` function. Data-dependent validators use closure-capture pattern (see HSN/duplicate). Context available via `invoice.TenantIDFromContext(ctx)` / `DocumentIDFromContext(ctx)`
 - **Modifying CSV columns**: `csvexport/writer.go` — `columns` slice + `documentToRow`
+- **Modifying Tally export**: Template in `tallyexport/template.go`. Conversion logic in `tallyexport/convert.go`. Data model in `tallyexport/voucher.go`. Writer in `tallyexport/writer.go`. Handler in `handler/collection_handler.go` (`ExportTally`). Route in `router/router.go`
 - **Modifying free tier**: Quota in `SATVOS_FREE_TIER_MONTHLY_LIMIT`. Registration in `service/registration_service.go`. Quota SQL in `repository/postgres/user_repo.go`. File isolation in `handler/file_handler.go`
 - **Modifying email verification**: Service in `registration_service.go`. Middleware in `middleware/auth.go`. Sender in `port/email.go` → `email/ses/` or `email/noop/`
 - **Modifying password reset**: Service in `service/password_reset_service.go`. Repo in `repository/postgres/user_repo.go`. Handler in `handler/auth_handler.go`
@@ -239,4 +246,6 @@ Go 1.24, Gin, PostgreSQL 16 (sqlx + pgx/v5), AWS S3 (aws-sdk-go-v2), AWS SES v2,
 - **Summary upsert non-blocking**: Same pattern as audit — `upsertSummary`/`updateSummaryStatuses` log errors but never fail the parent operation. Nil summaryRepo is safe
 - **HSN report queries JSONB directly**: The `hsn-summary` report uses `jsonb_array_elements` on `documents.structured_data` rather than the summary table, since line items aren't denormalized
 - **ReportFilters is a pointer**: `*domain.ReportFilters` (120 bytes) — gocritic hugeParam lint requires pointer passing
+- **Tally XML uses text/template**: Not `encoding/xml` — Tally element names like `ALLINVENTORYENTRIES.LIST` don't work with Go's xml struct tags. Template parsed at `init()`. Custom `xmlEscape` func handles `&<>"'` in dynamic values
+- **Tally amount signs**: Party ledger = positive (credit), tax ledgers = negative (debit), inventory = negative (debit). `ISDEEMEDPOSITIVE` = `"Yes"` for debit entries
 - **Stale processing docs**: Server crash mid-parse → doc stuck in `processing` (no staleness detector yet)
