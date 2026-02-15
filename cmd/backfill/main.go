@@ -121,6 +121,36 @@ func run() error {
 				log.Printf("WARN: failed to upsert summary for document %s: %v", doc.ID, err)
 				continue
 			}
+
+			// Backfill denormalized line items for HSN queries
+			if len(inv.LineItems) > 0 {
+				items := make([]domain.DocumentLineItem, len(inv.LineItems))
+				for j := range inv.LineItems {
+					li := &inv.LineItems[j]
+					items[j] = domain.DocumentLineItem{
+						DocumentID:    doc.ID,
+						TenantID:      doc.TenantID,
+						ItemIndex:     j,
+						HSNSACCode:    li.HSNSACCode,
+						Description:   li.Description,
+						Quantity:      li.Quantity,
+						UnitPrice:     li.UnitPrice,
+						Discount:      li.Discount,
+						TaxableAmount: li.TaxableAmount,
+						CGSTRate:      li.CGSTRate,
+						CGSTAmount:    li.CGSTAmount,
+						SGSTRate:      li.SGSTRate,
+						SGSTAmount:    li.SGSTAmount,
+						IGSTRate:      li.IGSTRate,
+						IGSTAmount:    li.IGSTAmount,
+						Total:         li.Total,
+					}
+				}
+				if err := summaryRepo.ReplaceLineItems(ctx, doc.ID, doc.TenantID, items); err != nil {
+					log.Printf("WARN: failed to backfill line items for document %s: %v", doc.ID, err)
+				}
+			}
+
 			total++
 		}
 
