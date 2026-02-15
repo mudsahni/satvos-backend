@@ -147,7 +147,7 @@ func TestFileHandler_GetByID_Success(t *testing.T) {
 		Status:   domain.FileStatusUploaded,
 	}
 
-	mockFileSvc.On("GetByID", mock.Anything, tenantID, fileID).Return(meta, nil)
+	mockFileSvc.On("GetByIDForUser", mock.Anything, tenantID, fileID, userID, domain.UserRole("member")).Return(meta, nil)
 	mockFileSvc.On("GetDownloadURL", mock.Anything, tenantID, fileID).
 		Return("https://presigned.example.com/test", nil)
 
@@ -171,7 +171,7 @@ func TestFileHandler_GetByID_NotFound(t *testing.T) {
 	userID := uuid.New()
 	fileID := uuid.New()
 
-	mockFileSvc.On("GetByID", mock.Anything, tenantID, fileID).Return(nil, domain.ErrNotFound)
+	mockFileSvc.On("GetByIDForUser", mock.Anything, tenantID, fileID, userID, domain.UserRole("member")).Return(nil, domain.ErrNotFound)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)

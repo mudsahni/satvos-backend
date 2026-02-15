@@ -2,7 +2,6 @@ package handler
 
 import (
 	"net/http"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -63,14 +62,7 @@ func (h *TenantHandler) Create(c *gin.Context) {
 // @Security BearerAuth
 // @Router /admin/tenants [get]
 func (h *TenantHandler) List(c *gin.Context) {
-	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
-	if limit <= 0 || limit > 100 {
-		limit = 20
-	}
-	if offset < 0 {
-		offset = 0
-	}
+	offset, limit := parsePagination(c)
 
 	tenants, total, err := h.tenantService.List(c.Request.Context(), offset, limit)
 	if err != nil {

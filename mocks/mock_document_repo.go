@@ -2,6 +2,7 @@ package mocks
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
@@ -93,6 +94,11 @@ func (m *MockDocumentRepo) ClaimQueued(ctx context.Context, limit int) ([]domain
 		return nil, args.Error(1)
 	}
 	return args.Get(0).([]domain.Document), args.Error(1)
+}
+
+func (m *MockDocumentRepo) ResetStaleProcessing(ctx context.Context, staleBefore time.Time) (int, error) {
+	args := m.Called(ctx, staleBefore)
+	return args.Int(0), args.Error(1)
 }
 
 func (m *MockDocumentRepo) Delete(ctx context.Context, tenantID, docID uuid.UUID) error {

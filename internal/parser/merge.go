@@ -82,9 +82,14 @@ func (m *MergeParser) Parse(ctx context.Context, input port.ParseInput) (*port.P
 func mergeOutputs(primary, secondary *port.ParseOutput) (*port.ParseOutput, error) {
 	var pData, sData invoice.GSTInvoice
 	if err := json.Unmarshal(primary.StructuredData, &pData); err != nil {
-		return primary, nil // fall back to primary on parse error
+		log.Printf("parser.MergeParser: WARNING: failed to unmarshal primary structured data (%s), falling back to secondary", err)
+		secondary.FieldProvenance = map[string]string{"_source": "secondary_only", "_reason": "primary_unmarshal_failed"}
+		secondary.SecondaryModel = secondary.ModelUsed
+		return secondary, nil
 	}
 	if err := json.Unmarshal(secondary.StructuredData, &sData); err != nil {
+		log.Printf("parser.MergeParser: WARNING: failed to unmarshal secondary structured data (%s), falling back to primary", err)
+		primary.FieldProvenance = map[string]string{"_source": "primary_only", "_reason": "secondary_unmarshal_failed"}
 		return primary, nil
 	}
 

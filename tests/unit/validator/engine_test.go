@@ -846,3 +846,167 @@ func TestEngine_GetValidation_WithConfidenceScores(t *testing.T) {
 	assert.Equal(t, domain.FieldStatusUnsure, resp.FieldStatuses["seller.gstin"].Status)
 	assert.Equal(t, domain.FieldStatusValid, resp.FieldStatuses["seller.name"].Status)
 }
+
+// --- Edge cases: empty/malformed structured data ---
+
+func TestEngine_ValidateDocument_EmptyStructuredData(t *testing.T) {
+	engine, docRepo, ruleRepo := setupEngine()
+	ctx := context.Background()
+	tenantID := uuid.New()
+	docID := uuid.New()
+
+	// Empty JSON object — all fields zero-value, required validators will fail
+	doc := &domain.Document{
+		ID:                docID,
+		TenantID:          tenantID,
+		DocumentType:      "invoice",
+		StructuredData:    json.RawMessage("{}"),
+		ConfidenceScores:  json.RawMessage("{}"),
+		ValidationResults: json.RawMessage("[]"),
+		CreatedBy:         uuid.New(),
+	}
+
+	ruleKey := "req.invoice.number"
+	ruleID := uuid.New()
+	rules := []domain.DocumentValidationRule{makeRule(ruleID, ruleKey, domain.ValidationSeverityError)}
+
+	docRepo.On("GetByID", ctx, tenantID, docID).Return(doc, nil)
+	ruleRepo.On("ListBuiltinKeys", ctx, tenantID, "invoice").Return(allBuiltinKeys(), nil)
+	ruleRepo.On("ListByDocumentType", ctx, tenantID, "invoice", (*uuid.UUID)(nil)).Return(rules, nil)
+	docRepo.On("UpdateValidationResults", mock.Anything, mock.AnythingOfType("*domain.Document")).
+		Run(func(args mock.Arguments) {
+			d := args.Get(1).(*domain.Document)
+			assert.Equal(t, domain.ValidationStatusInvalid, d.ValidationStatus)
+			var results []validator.ValidationResultEntry
+			_ = json.Unmarshal(d.ValidationResults, &results)
+			assert.NotEmpty(t, results)
+		}).Return(nil)
+
+	err := engine.ValidateDocument(ctx, tenantID, docID)
+
+	assert.NoError(t, err)
+	docRepo.AssertCalled(t, "UpdateValidationResults", mock.Anything, mock.AnythingOfType("*domain.Document"))
+}
+
+func TestEngine_ValidateDocument_NilStructuredData(t *testing.T) {
+	engine, docRepo, ruleRepo := setupEngine()
+	ctx := context.Background()
+	tenantID := uuid.New()
+	docID := uuid.New()
+
+	doc := &domain.Document{
+		ID:                docID,
+		TenantID:          tenantID,
+		DocumentType:      "invoice",
+		StructuredData:    nil,
+		ConfidenceScores:  json.RawMessage("{}"),
+		ValidationResults: json.RawMessage("[]"),
+		CreatedBy:         uuid.New(),
+	}
+
+	docRepo.On("GetByID", ctx, tenantID, docID).Return(doc, nil)
+	ruleRepo.On("ListBuiltinKeys", ctx, tenantID, "invoice").Return(allBuiltinKeys(), nil)
+	ruleRepo.On("ListByDocumentType", ctx, tenantID, "invoice", (*uuid.UUID)(nil)).Return([]domain.DocumentValidationRule{}, nil)
+
+	err := engine.ValidateDocument(ctx, tenantID, docID)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "unmarshaling structured_data")
+}
+
+func TestEngine_ValidateDocument_ValidatorPanicRecovery(t *testing.T) {
+	docRepo := new(mocks.MockDocumentRepo)
+	ruleRepo := new(mocks.MockDocumentValidationRuleRepo)
+	registry := validator.NewRegistry()
+	// Register a panicking validator
+	registry.Register(panickingValidator{})
+	engine := validator.NewEngine(registry, ruleRepo, docRepo)
+
+	ctx := context.Background()
+	tenantID := uuid.New()
+	docID := uuid.New()
+
+	doc := &domain.Document{
+		ID:                docID,
+		TenantID:          tenantID,
+		DocumentType:      "invoice",
+		StructuredData:    json.RawMessage("{}"),
+		ConfidenceScores:  json.RawMessage("{}"),
+		ValidationResults: json.RawMessage("[]"),
+		CreatedBy:         uuid.New(),
+	}
+
+	ruleKey := "test.panicking"
+	ruleID := uuid.New()
+	rules := []domain.DocumentValidationRule{{
+		ID:              ruleID,
+		TenantID:        tenantID,
+		DocumentType:    "invoice",
+		RuleName:        "Panicking Validator",
+		RuleType:        domain.ValidationRuleRequired,
+		Severity:        domain.ValidationSeverityError,
+		IsActive:        true,
+		IsBuiltin:       true,
+		BuiltinRuleKey:  &ruleKey,
+	}}
+
+	docRepo.On("GetByID", ctx, tenantID, docID).Return(doc, nil)
+	ruleRepo.On("ListBuiltinKeys", ctx, tenantID, "invoice").Return([]string{ruleKey}, nil)
+	ruleRepo.On("ListByDocumentType", ctx, tenantID, "invoice", (*uuid.UUID)(nil)).Return(rules, nil)
+	docRepo.On("UpdateValidationResults", mock.Anything, mock.AnythingOfType("*domain.Document")).
+		Run(func(args mock.Arguments) {
+			d := args.Get(1).(*domain.Document)
+			// Panic should result in invalid status
+			assert.Equal(t, domain.ValidationStatusInvalid, d.ValidationStatus)
+			// Should have a result entry for the panicked validator
+			var results []validator.ValidationResultEntry
+			_ = json.Unmarshal(d.ValidationResults, &results)
+			assert.Len(t, results, 1)
+			assert.False(t, results[0].Passed)
+			assert.Contains(t, results[0].Message, "validator panicked")
+		}).Return(nil)
+
+	// Should not panic — engine should recover gracefully
+	err := engine.ValidateDocument(ctx, tenantID, docID)
+
+	assert.NoError(t, err)
+	docRepo.AssertCalled(t, "UpdateValidationResults", mock.Anything, mock.AnythingOfType("*domain.Document"))
+}
+
+func TestEngine_ValidateDocument_MalformedJSON(t *testing.T) {
+	engine, docRepo, ruleRepo := setupEngine()
+	ctx := context.Background()
+	tenantID := uuid.New()
+	docID := uuid.New()
+
+	doc := &domain.Document{
+		ID:                docID,
+		TenantID:          tenantID,
+		DocumentType:      "invoice",
+		StructuredData:    json.RawMessage("{invalid"),
+		ConfidenceScores:  json.RawMessage("{}"),
+		ValidationResults: json.RawMessage("[]"),
+		CreatedBy:         uuid.New(),
+	}
+
+	docRepo.On("GetByID", ctx, tenantID, docID).Return(doc, nil)
+	ruleRepo.On("ListBuiltinKeys", ctx, tenantID, "invoice").Return(allBuiltinKeys(), nil)
+	ruleRepo.On("ListByDocumentType", ctx, tenantID, "invoice", (*uuid.UUID)(nil)).Return([]domain.DocumentValidationRule{}, nil)
+
+	err := engine.ValidateDocument(ctx, tenantID, docID)
+
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "unmarshaling structured_data")
+}
+
+// panickingValidator is a test validator that always panics.
+type panickingValidator struct{}
+
+func (panickingValidator) Validate(_ context.Context, _ *invoice.GSTInvoice) []invoice.ValidationResult {
+	panic("intentional test panic")
+}
+func (panickingValidator) RuleKey() string                     { return "test.panicking" }
+func (panickingValidator) RuleName() string                    { return "Panicking Validator" }
+func (panickingValidator) RuleType() domain.ValidationRuleType { return domain.ValidationRuleRequired }
+func (panickingValidator) Severity() domain.ValidationSeverity { return domain.ValidationSeverityError }
+func (panickingValidator) ReconciliationCritical() bool        { return false }

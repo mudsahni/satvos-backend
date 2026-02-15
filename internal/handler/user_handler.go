@@ -2,7 +2,6 @@ package handler
 
 import (
 	"net/http"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -76,14 +75,7 @@ func (h *UserHandler) List(c *gin.Context) {
 		return
 	}
 
-	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
-	if limit <= 0 || limit > 100 {
-		limit = 20
-	}
-	if offset < 0 {
-		offset = 0
-	}
+	offset, limit := parsePagination(c)
 
 	users, total, err := h.userService.List(c.Request.Context(), tenantID, offset, limit)
 	if err != nil {

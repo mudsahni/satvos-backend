@@ -5,7 +5,6 @@ import (
 	"log"
 	"mime/multipart"
 	"net/http"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -584,17 +583,4 @@ func (h *CollectionHandler) ExportCSV(c *gin.Context) {
 	if err := w.Error(); err != nil {
 		log.Printf("ERROR: csv export flush failed: %v", err)
 	}
-}
-
-// parsePagination extracts offset and limit from query params with defaults.
-func parsePagination(c *gin.Context) (offset, limit int) {
-	offset, _ = strconv.Atoi(c.DefaultQuery("offset", "0"))
-	limit, _ = strconv.Atoi(c.DefaultQuery("limit", "20"))
-	if limit <= 0 || limit > 100 {
-		limit = 20
-	}
-	if offset < 0 {
-		offset = 0
-	}
-	return offset, limit
 }

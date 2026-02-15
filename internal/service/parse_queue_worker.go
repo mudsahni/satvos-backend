@@ -11,9 +11,11 @@ import (
 
 // ParseQueueConfig holds settings for the parse queue worker.
 type ParseQueueConfig struct {
-	PollInterval time.Duration
-	MaxRetries   int
-	Concurrency  int
+	PollInterval      time.Duration
+	MaxRetries        int
+	Concurrency       int
+	StaleThreshold    time.Duration // how long a doc can be "processing" before considered stale
+	StaleSweepInterval time.Duration // how often to sweep for stale docs
 }
 
 // ParseQueueWorker polls for queued documents and dispatches them for parsing.
@@ -33,16 +35,44 @@ func NewParseQueueWorker(docRepo port.DocumentRepository, docService DocumentSer
 	}
 }
 
+// RecoverStaleProcessing resets documents stuck in "processing" status back to "queued".
+// Should be called at startup and periodically to recover from server crashes.
+func (w *ParseQueueWorker) RecoverStaleProcessing(ctx context.Context) {
+	threshold := w.cfg.StaleThreshold
+	if threshold == 0 {
+		threshold = 10 * time.Minute
+	}
+	staleBefore := time.Now().Add(-threshold)
+	count, err := w.docRepo.ResetStaleProcessing(ctx, staleBefore)
+	if err != nil {
+		log.Printf("parseQueueWorker: failed to recover stale documents: %v", err)
+		return
+	}
+	if count > 0 {
+		log.Printf("parseQueueWorker: recovered %d stale processing document(s)", count)
+	}
+}
+
 // Start runs the polling loop until ctx is canceled. It blocks until all
 // in-flight parse goroutines have finished.
 func (w *ParseQueueWorker) Start(ctx context.Context) {
+	// Recover stale documents on startup
+	w.RecoverStaleProcessing(ctx)
+
 	ticker := time.NewTicker(w.cfg.PollInterval)
 	defer ticker.Stop()
 
+	sweepInterval := w.cfg.StaleSweepInterval
+	if sweepInterval == 0 {
+		sweepInterval = 5 * time.Minute
+	}
+	staleTicker := time.NewTicker(sweepInterval)
+	defer staleTicker.Stop()
+
 	sem := make(chan struct{}, w.cfg.Concurrency)
 
-	log.Printf("parseQueueWorker: started (poll=%s, concurrency=%d, maxRetries=%d)",
-		w.cfg.PollInterval, w.cfg.Concurrency, w.cfg.MaxRetries)
+	log.Printf("parseQueueWorker: started (poll=%s, concurrency=%d, maxRetries=%d, staleThreshold=%s)",
+		w.cfg.PollInterval, w.cfg.Concurrency, w.cfg.MaxRetries, w.cfg.StaleThreshold)
 
 	for {
 		select {
@@ -51,6 +81,8 @@ func (w *ParseQueueWorker) Start(ctx context.Context) {
 			w.wg.Wait()
 			log.Printf("parseQueueWorker: shutdown complete")
 			return
+		case <-staleTicker.C:
+			w.RecoverStaleProcessing(ctx)
 		case <-ticker.C:
 			available := w.cfg.Concurrency - len(sem)
 			if available <= 0 {

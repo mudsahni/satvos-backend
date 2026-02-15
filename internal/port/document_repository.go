@@ -2,6 +2,7 @@ package port
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -22,6 +23,7 @@ type DocumentRepository interface {
 	UpdateValidationResults(ctx context.Context, doc *domain.Document) error
 	ListReviewQueue(ctx context.Context, tenantID, userID uuid.UUID, offset, limit int) ([]domain.Document, int, error)
 	ClaimQueued(ctx context.Context, limit int) ([]domain.Document, error)
+	ResetStaleProcessing(ctx context.Context, staleBefore time.Time) (int, error)
 	Delete(ctx context.Context, tenantID, docID uuid.UUID) error
 }
 

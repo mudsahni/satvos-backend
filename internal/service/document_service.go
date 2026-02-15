@@ -82,6 +82,21 @@ type DocumentService interface {
 	ParseDocument(ctx context.Context, doc *domain.Document, maxAttempts int)
 }
 
+// DocumentServiceDeps groups dependencies for NewDocumentService.
+type DocumentServiceDeps struct {
+	DocRepo     port.DocumentRepository
+	FileRepo    port.FileMetaRepository
+	UserRepo    port.UserRepository
+	PermRepo    port.CollectionPermissionRepository
+	TagRepo     port.DocumentTagRepository
+	AuditRepo   port.DocumentAuditRepository
+	SummaryRepo port.DocumentSummaryRepository
+	Parser      port.DocumentParser
+	MergeParser port.DocumentParser // optional — enables dual-parse mode
+	Storage     port.ObjectStorage
+	Validator   *validator.Engine
+}
+
 type documentService struct {
 	docRepo     port.DocumentRepository
 	fileRepo    port.FileMetaRepository
@@ -97,84 +112,25 @@ type documentService struct {
 }
 
 // NewDocumentService creates a new DocumentService implementation.
-func NewDocumentService(
-	docRepo port.DocumentRepository,
-	fileRepo port.FileMetaRepository,
-	userRepo port.UserRepository,
-	permRepo port.CollectionPermissionRepository,
-	tagRepo port.DocumentTagRepository,
-	docParser port.DocumentParser,
-	storage port.ObjectStorage,
-	validationEngine *validator.Engine,
-	auditRepo port.DocumentAuditRepository,
-	summaryRepo port.DocumentSummaryRepository,
-) DocumentService {
+func NewDocumentService(deps *DocumentServiceDeps) DocumentService {
 	return &documentService{
-		docRepo:     docRepo,
-		fileRepo:    fileRepo,
-		userRepo:    userRepo,
-		permRepo:    permRepo,
-		tagRepo:     tagRepo,
-		auditRepo:   auditRepo,
-		summaryRepo: summaryRepo,
-		parser:      docParser,
-		storage:     storage,
-		validator:   validationEngine,
+		docRepo:     deps.DocRepo,
+		fileRepo:    deps.FileRepo,
+		userRepo:    deps.UserRepo,
+		permRepo:    deps.PermRepo,
+		tagRepo:     deps.TagRepo,
+		auditRepo:   deps.AuditRepo,
+		summaryRepo: deps.SummaryRepo,
+		parser:      deps.Parser,
+		mergeParser: deps.MergeParser,
+		storage:     deps.Storage,
+		validator:   deps.Validator,
 	}
 }
 
-// NewDocumentServiceWithMerge creates a DocumentService with dual-parse support.
-func NewDocumentServiceWithMerge(
-	docRepo port.DocumentRepository,
-	fileRepo port.FileMetaRepository,
-	userRepo port.UserRepository,
-	permRepo port.CollectionPermissionRepository,
-	tagRepo port.DocumentTagRepository,
-	docParser port.DocumentParser,
-	mergeDocParser port.DocumentParser,
-	storage port.ObjectStorage,
-	validationEngine *validator.Engine,
-	auditRepo port.DocumentAuditRepository,
-	summaryRepo port.DocumentSummaryRepository,
-) DocumentService {
-	return &documentService{
-		docRepo:     docRepo,
-		fileRepo:    fileRepo,
-		userRepo:    userRepo,
-		permRepo:    permRepo,
-		tagRepo:     tagRepo,
-		auditRepo:   auditRepo,
-		summaryRepo: summaryRepo,
-		parser:      docParser,
-		mergeParser: mergeDocParser,
-		storage:     storage,
-		validator:   validationEngine,
-	}
-}
-
-// effectiveCollectionPerm computes the effective collection permission for a user.
-func (s *documentService) effectiveCollectionPerm(ctx context.Context, collectionID, userID uuid.UUID, role domain.UserRole) domain.CollectionPermission {
-	implicit := domain.ImplicitCollectionPerm(role)
-
-	explicit := domain.CollectionPermission("")
-	perm, err := s.permRepo.GetByCollectionAndUser(ctx, collectionID, userID)
-	if err == nil {
-		explicit = perm.Permission
-	}
-
-	if domain.CollectionPermLevel(implicit) >= domain.CollectionPermLevel(explicit) {
-		return implicit
-	}
-	return explicit
-}
-
-// requireCollectionPerm checks that the user has the minimum permission on a collection.
+// requireCollectionPerm delegates to the shared RequireCollectionPerm helper.
 func (s *documentService) requireCollectionPerm(ctx context.Context, collectionID, userID uuid.UUID, role domain.UserRole, minLevel domain.CollectionPermission) error {
-	eff := s.effectiveCollectionPerm(ctx, collectionID, userID, role)
-	if domain.CollectionPermLevel(eff) < domain.CollectionPermLevel(minLevel) {
-		return domain.ErrCollectionPermDenied
-	}
-	return nil
+	return RequireCollectionPerm(ctx, s.permRepo, collectionID, userID, role, minLevel)
 }
 
 // audit records a document mutation in the audit log. Failures are logged but never block business logic.
@@ -217,15 +173,18 @@ func (s *documentService) auditValidationCompleted(ctx context.Context, tenantID
 
 // upsertSummary builds a DocumentSummary from a Document and upserts it.
 // Non-blocking: errors are logged but never returned.
-func (s *documentService) upsertSummary(ctx context.Context, doc *domain.Document) {
+func (s *documentService) upsertSummary(ctx context.Context, doc *domain.Document, inv *invoice.GSTInvoice) {
 	if s.summaryRepo == nil {
 		return
 	}
 
-	var inv invoice.GSTInvoice
-	if err := json.Unmarshal(doc.StructuredData, &inv); err != nil {
-		log.Printf("documentService.upsertSummary: failed to unmarshal structured_data for %s: %v", doc.ID, err)
-		return
+	// If caller didn't supply a pre-parsed invoice, unmarshal here
+	if inv == nil {
+		inv = new(invoice.GSTInvoice)
+		if err := json.Unmarshal(doc.StructuredData, inv); err != nil {
+			log.Printf("documentService.upsertSummary: failed to unmarshal structured_data for %s: %v", doc.ID, err)
+			return
+		}
 	}
 
 	summary := &domain.DocumentSummary{
@@ -280,6 +239,35 @@ func (s *documentService) upsertSummary(ctx context.Context, doc *domain.Documen
 
 	if err := s.summaryRepo.Upsert(ctx, summary); err != nil {
 		log.Printf("documentService.upsertSummary: failed for %s: %v", doc.ID, err)
+	}
+
+	// Upsert denormalized line items for HSN queries
+	if len(inv.LineItems) > 0 {
+		items := make([]domain.DocumentLineItem, len(inv.LineItems))
+		for i := range inv.LineItems {
+			li := &inv.LineItems[i]
+			items[i] = domain.DocumentLineItem{
+				DocumentID:    doc.ID,
+				TenantID:      doc.TenantID,
+				ItemIndex:     i,
+				HSNSACCode:    li.HSNSACCode,
+				Description:   li.Description,
+				Quantity:      li.Quantity,
+				UnitPrice:     li.UnitPrice,
+				Discount:      li.Discount,
+				TaxableAmount: li.TaxableAmount,
+				CGSTRate:      li.CGSTRate,
+				CGSTAmount:    li.CGSTAmount,
+				SGSTRate:      li.SGSTRate,
+				SGSTAmount:    li.SGSTAmount,
+				IGSTRate:      li.IGSTRate,
+				IGSTAmount:    li.IGSTAmount,
+				Total:         li.Total,
+			}
+		}
+		if err := s.summaryRepo.ReplaceLineItems(ctx, doc.ID, doc.TenantID, items); err != nil {
+			log.Printf("documentService.upsertSummary: failed to replace line items for %s: %v", doc.ID, err)
+		}
 	}
 }
 
@@ -496,13 +484,16 @@ func (s *documentService) ParseDocument(ctx context.Context, doc *domain.Documen
 
 	log.Printf("documentService.ParseDocument: document %s parsed successfully", doc.ID)
 
-	// Extract auto-tags from parsed data
-	if s.tagRepo != nil {
-		s.extractAndSaveAutoTags(ctx, doc.ID, doc.TenantID, doc.StructuredData)
+	// Unmarshal structured data once for tags + summary
+	var inv invoice.GSTInvoice
+	if err := json.Unmarshal(doc.StructuredData, &inv); err != nil {
+		log.Printf("documentService.ParseDocument: failed to unmarshal structured_data for %s: %v", doc.ID, err)
+	} else {
+		if s.tagRepo != nil {
+			s.extractAndSaveAutoTags(ctx, doc.ID, doc.TenantID, &inv)
+		}
+		s.upsertSummary(ctx, doc, &inv)
 	}
-
-	// Upsert document summary for reporting
-	s.upsertSummary(ctx, doc)
 
 	// Run validation after successful parsing
 	if s.validator != nil {
@@ -748,9 +739,9 @@ func (s *documentService) EditStructuredData(ctx context.Context, input *EditStr
 		return nil, fmt.Errorf("resetting review status: %w", err)
 	}
 
-	// Re-extract auto-tags from the new structured data
+	// Re-extract auto-tags from the already-parsed invoice (reuse inv from above)
 	if s.tagRepo != nil {
-		s.extractAndSaveAutoTags(ctx, doc.ID, doc.TenantID, doc.StructuredData)
+		s.extractAndSaveAutoTags(ctx, doc.ID, doc.TenantID, &inv)
 	}
 
 	// Run validation synchronously
@@ -766,8 +757,8 @@ func (s *documentService) EditStructuredData(ctx context.Context, input *EditStr
 		return nil, fmt.Errorf("re-fetching document after edit: %w", err)
 	}
 
-	// Upsert document summary for reporting
-	s.upsertSummary(ctx, updated)
+	// Upsert document summary for reporting (reuse inv from above)
+	s.upsertSummary(ctx, updated, &inv)
 
 	if s.validator != nil {
 		s.auditValidationCompleted(ctx, input.TenantID, input.DocumentID, &input.UserID, "edit")
@@ -1003,13 +994,7 @@ func (s *documentService) SearchByTag(ctx context.Context, tenantID uuid.UUID, k
 	return s.tagRepo.SearchByTag(ctx, tenantID, key, value, offset, limit)
 }
 
-func (s *documentService) extractAndSaveAutoTags(ctx context.Context, docID, tenantID uuid.UUID, structuredData json.RawMessage) {
-	var inv invoice.GSTInvoice
-	if err := json.Unmarshal(structuredData, &inv); err != nil {
-		log.Printf("documentService.extractAndSaveAutoTags: failed to unmarshal structured data for %s: %v", docID, err)
-		return
-	}
-
+func (s *documentService) extractAndSaveAutoTags(ctx context.Context, docID, tenantID uuid.UUID, inv *invoice.GSTInvoice) {
 	tagMap := map[string]string{}
 	if inv.Invoice.InvoiceNumber != "" {
 		tagMap["invoice_number"] = inv.Invoice.InvoiceNumber

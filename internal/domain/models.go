@@ -199,6 +199,27 @@ type DocumentSummary struct {
 	UpdatedAt            time.Time            `db:"updated_at" json:"updated_at"`
 }
 
+// DocumentLineItem is a denormalized line item for fast HSN aggregation queries.
+type DocumentLineItem struct {
+	ID            uuid.UUID `db:"id" json:"id"`
+	DocumentID    uuid.UUID `db:"document_id" json:"document_id"`
+	TenantID      uuid.UUID `db:"tenant_id" json:"tenant_id"`
+	ItemIndex     int       `db:"item_index" json:"item_index"`
+	HSNSACCode    string    `db:"hsn_sac_code" json:"hsn_sac_code"`
+	Description   string    `db:"description" json:"description"`
+	Quantity      float64   `db:"quantity" json:"quantity"`
+	UnitPrice     float64   `db:"unit_price" json:"unit_price"`
+	Discount      float64   `db:"discount" json:"discount"`
+	TaxableAmount float64   `db:"taxable_amount" json:"taxable_amount"`
+	CGSTRate      float64   `db:"cgst_rate" json:"cgst_rate"`
+	CGSTAmount    float64   `db:"cgst_amount" json:"cgst_amount"`
+	SGSTRate      float64   `db:"sgst_rate" json:"sgst_rate"`
+	SGSTAmount    float64   `db:"sgst_amount" json:"sgst_amount"`
+	IGSTRate      float64   `db:"igst_rate" json:"igst_rate"`
+	IGSTAmount    float64   `db:"igst_amount" json:"igst_amount"`
+	Total         float64   `db:"total" json:"total"`
+}
+
 // ReportFilters holds common filter parameters for report queries.
 type ReportFilters struct {
 	From         *time.Time

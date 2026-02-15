@@ -299,6 +299,19 @@ func (r *documentRepo) ClaimQueued(ctx context.Context, limit int) ([]domain.Doc
 	return docs, nil
 }
 
+func (r *documentRepo) ResetStaleProcessing(ctx context.Context, staleBefore time.Time) (int, error) {
+	result, err := r.db.ExecContext(ctx,
+		`UPDATE documents
+		 SET parsing_status = 'queued', retry_after = NOW(), updated_at = NOW()
+		 WHERE parsing_status = 'processing' AND updated_at < $1`,
+		staleBefore)
+	if err != nil {
+		return 0, fmt.Errorf("documentRepo.ResetStaleProcessing: %w", err)
+	}
+	rows, _ := result.RowsAffected()
+	return int(rows), nil
+}
+
 func (r *documentRepo) Delete(ctx context.Context, tenantID, docID uuid.UUID) error {
 	result, err := r.db.ExecContext(ctx,
 		"DELETE FROM documents WHERE id = $1 AND tenant_id = $2",

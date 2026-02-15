@@ -29,6 +29,7 @@ type FileUploadInput struct {
 type FileService interface {
 	Upload(ctx context.Context, input FileUploadInput) (*domain.FileMeta, error)
 	GetByID(ctx context.Context, tenantID, fileID uuid.UUID) (*domain.FileMeta, error)
+	GetByIDForUser(ctx context.Context, tenantID, fileID, userID uuid.UUID, role domain.UserRole) (*domain.FileMeta, error)
 	List(ctx context.Context, tenantID uuid.UUID, offset, limit int) ([]domain.FileMeta, int, error)
 	ListByUploader(ctx context.Context, tenantID, userID uuid.UUID, offset, limit int) ([]domain.FileMeta, int, error)
 	GetDownloadURL(ctx context.Context, tenantID, fileID uuid.UUID) (string, error)
@@ -141,6 +142,18 @@ func (s *fileService) Upload(ctx context.Context, input FileUploadInput) (*domai
 
 func (s *fileService) GetByID(ctx context.Context, tenantID, fileID uuid.UUID) (*domain.FileMeta, error) {
 	return s.fileRepo.GetByID(ctx, tenantID, fileID)
+}
+
+// GetByIDForUser returns a file if the user has access. Free-tier users can only access their own files.
+func (s *fileService) GetByIDForUser(ctx context.Context, tenantID, fileID, userID uuid.UUID, role domain.UserRole) (*domain.FileMeta, error) {
+	meta, err := s.fileRepo.GetByID(ctx, tenantID, fileID)
+	if err != nil {
+		return nil, err
+	}
+	if role == domain.RoleFree && meta.UploadedBy != userID {
+		return nil, domain.ErrNotFound
+	}
+	return meta, nil
 }
 
 func (s *fileService) List(ctx context.Context, tenantID uuid.UUID, offset, limit int) ([]domain.FileMeta, int, error) {

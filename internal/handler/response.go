@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -144,4 +145,17 @@ func HandleError(c *gin.Context, err error) {
 		log.Printf("[%s] internal error: %v", requestID, err)
 	}
 	RespondError(c, status, code, msg)
+}
+
+// parsePagination extracts offset and limit from query params with defaults and bounds checking.
+func parsePagination(c *gin.Context) (offset, limit int) {
+	offset, _ = strconv.Atoi(c.DefaultQuery("offset", "0"))
+	limit, _ = strconv.Atoi(c.DefaultQuery("limit", "20"))
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	return offset, limit
 }
