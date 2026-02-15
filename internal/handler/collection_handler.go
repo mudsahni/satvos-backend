@@ -12,6 +12,7 @@ import (
 	"satvos/internal/csvexport"
 	"satvos/internal/domain"
 	"satvos/internal/service"
+	"satvos/internal/tallyexport"
 )
 
 // CollectionHandler handles collection management endpoints.
@@ -582,5 +583,60 @@ func (h *CollectionHandler) ExportCSV(c *gin.Context) {
 	w.Flush()
 	if err := w.Error(); err != nil {
 		log.Printf("ERROR: csv export flush failed: %v", err)
+	}
+}
+
+// ExportTally handles GET /api/v1/collections/:id/export/tally
+func (h *CollectionHandler) ExportTally(c *gin.Context) {
+	tenantID, userID, role, ok := extractAuthContext(c)
+	if !ok {
+		return
+	}
+
+	collectionID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		RespondError(c, http.StatusBadRequest, "INVALID_ID", "invalid collection ID")
+		return
+	}
+
+	collection, err := h.collectionService.GetByID(c.Request.Context(), tenantID, collectionID, userID, role)
+	if err != nil {
+		HandleError(c, err)
+		return
+	}
+
+	companyName := c.Query("company_name")
+	if companyName == "" {
+		companyName = collection.Name
+	}
+
+	filename := tallyexport.BuildFilename(collection.Name)
+	c.Header("Content-Type", "application/xml; charset=utf-8")
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename=%q`, filename))
+
+	opts := &tallyexport.TallyExportOptions{CompanyName: companyName}
+	tw := tallyexport.NewWriter(c.Writer, opts)
+
+	const batchSize = 200
+	offset := 0
+	for {
+		docs, total, err := h.documentService.ListByCollection(
+			c.Request.Context(), tenantID, collectionID, userID, role, nil, offset, batchSize,
+		)
+		if err != nil {
+			log.Printf("ERROR: tally export document fetch failed at offset %d: %v", offset, err)
+			return
+		}
+
+		tw.WriteDocuments(docs)
+
+		offset += batchSize
+		if offset >= total {
+			break
+		}
+	}
+
+	if err := tw.Flush(); err != nil {
+		log.Printf("ERROR: tally export flush failed: %v", err)
 	}
 }

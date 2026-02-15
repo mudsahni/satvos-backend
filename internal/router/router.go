@@ -86,6 +86,7 @@ func Setup(
 	collections.GET("/:id/permissions", collectionH.ListPermissions)
 	collections.DELETE("/:id/permissions/:userId", collectionH.RemovePermission)
 	collections.GET("/:id/export/csv", collectionH.ExportCSV)
+	collections.GET("/:id/export/tally", collectionH.ExportTally)
 
 	// Document routes
 	documents := protected.Group("/documents")
