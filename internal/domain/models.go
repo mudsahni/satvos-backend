@@ -318,16 +318,16 @@ type TaxSummaryRow struct {
 
 // HSNSummaryRow is one row in the HSN summary report.
 type HSNSummaryRow struct {
-	HSNCode       string  `json:"hsn_code"`
-	Description   string  `json:"description"`
-	InvoiceCount  int     `json:"invoice_count"`
-	LineItemCount int     `json:"line_item_count"`
-	TotalQuantity float64 `json:"total_quantity"`
-	TaxableAmount float64 `json:"taxable_amount"`
-	CGST          float64 `json:"cgst"`
-	SGST          float64 `json:"sgst"`
-	IGST          float64 `json:"igst"`
-	TotalTax      float64 `json:"total_tax"`
+	HSNCode       string  `db:"hsn_code" json:"hsn_code"`
+	Description   string  `db:"description" json:"description"`
+	InvoiceCount  int     `db:"invoice_count" json:"invoice_count"`
+	LineItemCount int     `db:"line_item_count" json:"line_item_count"`
+	TotalQuantity float64 `db:"total_quantity" json:"total_quantity"`
+	TaxableAmount float64 `db:"taxable_amount" json:"taxable_amount"`
+	CGST          float64 `db:"cgst" json:"cgst"`
+	SGST          float64 `db:"sgst" json:"sgst"`
+	IGST          float64 `db:"igst" json:"igst"`
+	TotalTax      float64 `db:"total_tax" json:"total_tax"`
 }
 
 // CollectionOverviewRow is one row in the collections overview report.
