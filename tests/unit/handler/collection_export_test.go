@@ -54,12 +54,12 @@ func TestExportCSV_Success(t *testing.T) {
 
 	docs := []domain.Document{
 		{
-			ID:            uuid.New(),
-			Name:          "Invoice 1",
-			ParsingStatus: domain.ParsingStatusCompleted,
+			ID:             uuid.New(),
+			Name:           "Invoice 1",
+			ParsingStatus:  domain.ParsingStatusCompleted,
 			StructuredData: data,
-			ParsedAt:      &parsedAt,
-			CreatedAt:     time.Now(),
+			ParsedAt:       &parsedAt,
+			CreatedAt:      time.Now(),
 		},
 	}
 
@@ -94,7 +94,7 @@ func TestExportCSV_Success(t *testing.T) {
 
 	// Header row
 	assert.Equal(t, "Document Name", records[0][0])
-	assert.Len(t, records[0], 33)
+	assert.Len(t, records[0], 48)
 
 	// Data row
 	assert.Equal(t, "Invoice 1", records[1][0])

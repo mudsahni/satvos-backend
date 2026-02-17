@@ -25,6 +25,26 @@ func (r *duplicateFinderRepo) FindDuplicates(
 	tenantID, excludeDocID uuid.UUID,
 	sellerGSTIN, invoiceNumber, financialYear, irn string,
 ) ([]port.DuplicateMatch, error) {
+	matches, err := r.findDuplicates(ctx, tenantID, excludeDocID, sellerGSTIN, invoiceNumber, financialYear, irn, true)
+	if err == nil {
+		return matches, nil
+	}
+
+	// Backward-compatible fallback for environments where document_summaries schema
+	// is unavailable (or older than expected). We still return weak/exact matches.
+	if financialYear != "" && isDocumentSummarySchemaError(err) {
+		return r.findDuplicates(ctx, tenantID, excludeDocID, sellerGSTIN, invoiceNumber, "", irn, false)
+	}
+
+	return nil, err
+}
+
+func (r *duplicateFinderRepo) findDuplicates(
+	ctx context.Context,
+	tenantID, excludeDocID uuid.UUID,
+	sellerGSTIN, invoiceNumber, financialYear, irn string,
+	includeTier2 bool,
+) ([]port.DuplicateMatch, error) {
 	// Base WHERE clause uses $1=tenantID, $2=excludeDocID, $3=sellerGSTIN, $4=invoiceNumber.
 	// Additional positional args are appended dynamically.
 	args := []interface{}{tenantID, excludeDocID, sellerGSTIN, invoiceNumber}
@@ -34,8 +54,8 @@ func (r *duplicateFinderRepo) FindDuplicates(
 		  AND d.id != $2
 		  AND d.parsing_status = 'completed'
 		  AND d.structured_data @> jsonb_build_object(
-		      'seller', jsonb_build_object('gstin', $3),
-		      'invoice', jsonb_build_object('invoice_number', $4)
+		      'seller', jsonb_build_object('gstin', $3::text),
+		      'invoice', jsonb_build_object('invoice_number', $4::text)
 		  )`
 
 	var ctes []string
@@ -52,17 +72,18 @@ func (r *duplicateFinderRepo) FindDuplicates(
 		SELECT d.id, d.name, 'exact_irn'::text AS match_type, d.created_at
 		FROM documents d
 		WHERE %s
-		  AND LOWER(d.structured_data->'invoice'->>'irn') = LOWER(%s)
+		  AND LOWER(d.structured_data->'invoice'->>'irn') = LOWER(%s::text)
 	)`, baseWhere, irnArg))
 
 		unions = append(unions, `SELECT id, name, match_type, created_at FROM tier1`)
 		higherTierIDs = append(higherTierIDs, "tier1")
 	}
 
-	// Tier 2: strong — only when financialYear is non-empty
-	if financialYear != "" {
+	// Tier 2: strong — only when financialYear is non-empty and summaries are enabled
+	if includeTier2 && financialYear != "" {
 		fyArg := fmt.Sprintf("$%d", nextArg)
 		args = append(args, financialYear)
+		nextArg++
 
 		excludeClause := ""
 		if len(higherTierIDs) > 0 {
@@ -84,7 +105,7 @@ func (r *duplicateFinderRepo) FindDuplicates(
 		         LPAD(((EXTRACT(YEAR FROM ds.invoice_date)::int + 1) %% 100)::text, 2, '0'))
 		    ELSE CONCAT((EXTRACT(YEAR FROM ds.invoice_date)::int - 1), '-',
 		         LPAD((EXTRACT(YEAR FROM ds.invoice_date)::int %% 100)::text, 2, '0'))
-		  END = %s%s
+		  END = %s::text%s
 	)`, baseWhere, fyArg, excludeClause))
 
 		unions = append(unions, `SELECT id, name, match_type, created_at FROM tier2`)
@@ -129,4 +150,11 @@ func (r *duplicateFinderRepo) FindDuplicates(
 		return nil, fmt.Errorf("duplicate_finder_repo.FindDuplicates: %w", err)
 	}
 	return matches, nil
+}
+
+func isDocumentSummarySchemaError(err error) bool {
+	msg := strings.ToLower(err.Error())
+	// Any tier-2 error referencing document_summaries/ds.invoice_date should not
+	// disable duplicate detection completely; fallback to exact_irn+weak tiers.
+	return strings.Contains(msg, "document_summaries") || strings.Contains(msg, "ds.invoice_date")
 }
