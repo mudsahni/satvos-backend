@@ -51,7 +51,20 @@ func duplicateInvoiceValidator(finder port.DuplicateInvoiceFinder) func(context.
 			}}
 		}
 
-		matches, err := finder.FindDuplicates(ctx, tenantID, docID, gstin, invoiceNum)
+		// Extract IRN (lowercased) for tier 1 matching.
+		irn := strings.ToLower(inv.Invoice.IRN)
+
+		// Derive financial year for tier 2 matching.
+		// If invoice date is unparseable, fy stays empty and tier 2 is skipped.
+		fy := ""
+		if inv.Invoice.InvoiceDate != "" {
+			derivedFY, err := DeriveFinancialYear(inv.Invoice.InvoiceDate)
+			if err == nil {
+				fy = derivedFY
+			}
+		}
+
+		matches, err := finder.FindDuplicates(ctx, tenantID, docID, gstin, invoiceNum, fy, irn)
 		if err != nil {
 			return []ValidationResult{{
 				Passed:    true,
@@ -70,17 +83,27 @@ func duplicateInvoiceValidator(finder port.DuplicateInvoiceFinder) func(context.
 			}}
 		}
 
+		// Determine severity from match types.
+		hasStrong := false
 		names := make([]string, 0, len(matches))
 		for idx := range matches {
 			m := &matches[idx]
-			names = append(names, fmt.Sprintf("%q (uploaded %s)", m.DocumentName, m.CreatedAt.Format("2006-01-02")))
+			if m.MatchType == "exact_irn" || m.MatchType == "strong" {
+				hasStrong = true
+			}
+			names = append(names, fmt.Sprintf("%q [%s] (uploaded %s)", m.DocumentName, m.MatchType, m.CreatedAt.Format("2006-01-02")))
+		}
+
+		severity := "warning"
+		if hasStrong {
+			severity = "error"
 		}
 
 		return []ValidationResult{{
 			Passed:        false,
 			FieldPath:     "invoice",
 			ExpectedValue: "no duplicate invoices",
-			ActualValue:   fmt.Sprintf("%d duplicate(s) found", len(matches)),
+			ActualValue:   fmt.Sprintf("%d duplicate(s) found [%s]", len(matches), severity),
 			Message: fmt.Sprintf(
 				"Logical: Duplicate Invoice Detection: invoice %s from seller %s already exists in: %s",
 				invoiceNum, gstin, strings.Join(names, ", "),

@@ -98,7 +98,47 @@ type UpdateTenantRequest struct {
 	IsActive *bool   `json:"is_active" example:"false"`
 }
 
+// RegisterRequest represents the free-tier registration request body.
+type RegisterRequest struct {
+	Email    string `json:"email" binding:"required" example:"user@example.com"`
+	Password string `json:"password" binding:"required" example:"securepassword123"`
+	FullName string `json:"full_name" binding:"required" example:"John Doe"`
+}
+
+// ForgotPasswordRequest represents the forgot-password request body.
+type ForgotPasswordRequest struct {
+	TenantSlug string `json:"tenant_slug" binding:"required" example:"satvos"`
+	Email      string `json:"email" binding:"required" example:"user@example.com"`
+}
+
+// ResetPasswordRequest represents the reset-password request body.
+type ResetPasswordRequest struct {
+	Token       string `json:"token" binding:"required" example:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."`
+	NewPassword string `json:"new_password" binding:"required" example:"newsecurepassword456"`
+}
+
+// SocialLoginRequest represents the social login request body.
+type SocialLoginRequest struct {
+	Provider string `json:"provider" binding:"required" example:"google"`
+	IDToken  string `json:"id_token" binding:"required" example:"eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."`
+}
+
 // --- Response Types ---
+
+// RegisterResponse represents the registration response.
+type RegisterResponse struct {
+	User       domain.User       `json:"user"`
+	Collection domain.Collection `json:"collection"`
+	Tokens     TokenResponse     `json:"tokens"`
+}
+
+// SocialLoginResponse represents the social login response.
+type SocialLoginResponse struct {
+	User       domain.User        `json:"user"`
+	Collection *domain.Collection `json:"collection,omitempty"`
+	Tokens     TokenResponse      `json:"tokens"`
+	IsNewUser  bool               `json:"is_new_user" example:"false"`
+}
 
 // TokenResponse represents the authentication token response.
 type TokenResponse struct {
