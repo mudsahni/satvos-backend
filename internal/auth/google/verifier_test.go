@@ -15,7 +15,7 @@ import (
 )
 
 func TestVerifyIDToken_AudienceMatch(t *testing.T) {
-	v := stubVerifier(t, "web-client-id.apps.googleusercontent.com", tokenInfoResponse{
+	v := stubVerifier(t, "web-client-id.apps.googleusercontent.com", &tokenInfoResponse{
 		Iss:           "https://accounts.google.com",
 		Aud:           "web-client-id.apps.googleusercontent.com",
 		Sub:           "sub-123",
@@ -30,7 +30,7 @@ func TestVerifyIDToken_AudienceMatch(t *testing.T) {
 }
 
 func TestVerifyIDToken_TrimmedQuotedClientIDMatch(t *testing.T) {
-	v := stubVerifier(t, ` "web-client-id.apps.googleusercontent.com" `, tokenInfoResponse{
+	v := stubVerifier(t, ` "web-client-id.apps.googleusercontent.com" `, &tokenInfoResponse{
 		Iss:           "accounts.google.com",
 		Aud:           "web-client-id.apps.googleusercontent.com",
 		Sub:           "sub-123",
@@ -43,7 +43,7 @@ func TestVerifyIDToken_TrimmedQuotedClientIDMatch(t *testing.T) {
 }
 
 func TestVerifyIDToken_CommaSeparatedClientIDsMatch(t *testing.T) {
-	v := stubVerifier(t, "backend-client.apps.googleusercontent.com, frontend-client.apps.googleusercontent.com", tokenInfoResponse{
+	v := stubVerifier(t, "backend-client.apps.googleusercontent.com, frontend-client.apps.googleusercontent.com", &tokenInfoResponse{
 		Iss:           "accounts.google.com",
 		Aud:           "frontend-client.apps.googleusercontent.com",
 		Sub:           "sub-123",
@@ -56,7 +56,7 @@ func TestVerifyIDToken_CommaSeparatedClientIDsMatch(t *testing.T) {
 }
 
 func TestVerifyIDToken_AuthorizedPartyMatch(t *testing.T) {
-	v := stubVerifier(t, "frontend-client.apps.googleusercontent.com", tokenInfoResponse{
+	v := stubVerifier(t, "frontend-client.apps.googleusercontent.com", &tokenInfoResponse{
 		Iss:           "accounts.google.com",
 		Aud:           "shared-google-client.apps.googleusercontent.com",
 		Azp:           "frontend-client.apps.googleusercontent.com",
@@ -70,7 +70,7 @@ func TestVerifyIDToken_AuthorizedPartyMatch(t *testing.T) {
 }
 
 func TestVerifyIDToken_AudienceMismatch(t *testing.T) {
-	v := stubVerifier(t, "configured-client.apps.googleusercontent.com", tokenInfoResponse{
+	v := stubVerifier(t, "configured-client.apps.googleusercontent.com", &tokenInfoResponse{
 		Iss:           "accounts.google.com",
 		Aud:           "unexpected-client.apps.googleusercontent.com",
 		Sub:           "sub-123",
@@ -83,7 +83,7 @@ func TestVerifyIDToken_AudienceMismatch(t *testing.T) {
 	assert.ErrorIs(t, err, domain.ErrSocialAuthTokenInvalid)
 }
 
-func stubVerifier(t *testing.T, clientID string, response tokenInfoResponse) *Verifier {
+func stubVerifier(t *testing.T, clientID string, response *tokenInfoResponse) *Verifier {
 	t.Helper()
 	bodyBytes, err := json.Marshal(response)
 	require.NoError(t, err)
