@@ -23,6 +23,16 @@ func NewAuthHandler(authService service.AuthService, registrationService service
 }
 
 // Login handles POST /api/v1/auth/login
+// @Summary Login
+// @Description Authenticate with email and password, returns JWT token pair
+// @Tags auth
+// @Accept json
+// @Produce json
+// @Param request body LoginRequest true "Login credentials"
+// @Success 200 {object} Response{data=TokenResponse} "Token pair"
+// @Failure 400 {object} ErrorResponseBody "Validation error"
+// @Failure 401 {object} ErrorResponseBody "Invalid credentials"
+// @Router /auth/login [post]
 func (h *AuthHandler) Login(c *gin.Context) {
 	var input service.LoginInput
 	if err := c.ShouldBindJSON(&input); err != nil {
@@ -40,6 +50,16 @@ func (h *AuthHandler) Login(c *gin.Context) {
 }
 
 // RefreshToken handles POST /api/v1/auth/refresh
+// @Summary Refresh token
+// @Description Exchange a refresh token for a new JWT token pair
+// @Tags auth
+// @Accept json
+// @Produce json
+// @Param request body RefreshRequest true "Refresh token"
+// @Success 200 {object} Response{data=TokenResponse} "New token pair"
+// @Failure 400 {object} ErrorResponseBody "Validation error"
+// @Failure 401 {object} ErrorResponseBody "Invalid or expired refresh token"
+// @Router /auth/refresh [post]
 func (h *AuthHandler) RefreshToken(c *gin.Context) {
 	var input service.RefreshInput
 	if err := c.ShouldBindJSON(&input); err != nil {
@@ -57,6 +77,17 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 }
 
 // Register handles POST /api/v1/auth/register
+// @Summary Register free-tier account
+// @Description Self-register a free-tier account with email verification
+// @Tags auth
+// @Accept json
+// @Produce json
+// @Param request body RegisterRequest true "Registration details"
+// @Success 201 {object} Response{data=RegisterResponse} "Account created"
+// @Failure 400 {object} ErrorResponseBody "Validation error"
+// @Failure 404 {object} ErrorResponseBody "Registration not enabled"
+// @Failure 409 {object} ErrorResponseBody "Email already exists"
+// @Router /auth/register [post]
 func (h *AuthHandler) Register(c *gin.Context) {
 	if h.registrationService == nil {
 		RespondError(c, http.StatusNotFound, "NOT_FOUND", "registration is not enabled")
@@ -79,6 +110,16 @@ func (h *AuthHandler) Register(c *gin.Context) {
 }
 
 // VerifyEmail handles GET /api/v1/auth/verify-email?token=...
+// @Summary Verify email
+// @Description Verify email address using the token from the verification email
+// @Tags auth
+// @Produce json
+// @Param token query string true "Email verification JWT token"
+// @Success 200 {object} Response{data=MessageResponse} "Email verified"
+// @Failure 400 {object} ErrorResponseBody "Missing or invalid token"
+// @Failure 401 {object} ErrorResponseBody "Token expired"
+// @Failure 404 {object} ErrorResponseBody "Registration not enabled"
+// @Router /auth/verify-email [get]
 func (h *AuthHandler) VerifyEmail(c *gin.Context) {
 	if h.registrationService == nil {
 		RespondError(c, http.StatusNotFound, "NOT_FOUND", "registration is not enabled")
@@ -100,6 +141,16 @@ func (h *AuthHandler) VerifyEmail(c *gin.Context) {
 }
 
 // ForgotPassword handles POST /api/v1/auth/forgot-password
+// @Summary Request password reset
+// @Description Send a password reset email. Always returns 200 to prevent email enumeration.
+// @Tags auth
+// @Accept json
+// @Produce json
+// @Param request body ForgotPasswordRequest true "Account identifier"
+// @Success 200 {object} Response{data=MessageResponse} "Reset email sent (if account exists)"
+// @Failure 400 {object} ErrorResponseBody "Validation error"
+// @Failure 404 {object} ErrorResponseBody "Password reset not enabled"
+// @Router /auth/forgot-password [post]
 func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 	if h.passwordResetService == nil {
 		RespondError(c, http.StatusNotFound, "NOT_FOUND", "password reset is not enabled")
@@ -121,6 +172,16 @@ func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 }
 
 // ResetPassword handles POST /api/v1/auth/reset-password
+// @Summary Reset password
+// @Description Reset password using the token from the reset email. Token is single-use.
+// @Tags auth
+// @Accept json
+// @Produce json
+// @Param request body ResetPasswordRequest true "Reset token and new password"
+// @Success 200 {object} Response{data=MessageResponse} "Password reset"
+// @Failure 400 {object} ErrorResponseBody "Validation error or invalid token"
+// @Failure 404 {object} ErrorResponseBody "Password reset not enabled"
+// @Router /auth/reset-password [post]
 func (h *AuthHandler) ResetPassword(c *gin.Context) {
 	if h.passwordResetService == nil {
 		RespondError(c, http.StatusNotFound, "NOT_FOUND", "password reset is not enabled")
@@ -142,6 +203,17 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 }
 
 // SocialLogin handles POST /api/v1/auth/social-login
+// @Summary Social login
+// @Description Authenticate via a social provider (Google). Auto-registers new users on the free tier.
+// @Tags auth
+// @Accept json
+// @Produce json
+// @Param request body SocialLoginRequest true "Social provider and ID token"
+// @Success 200 {object} Response{data=SocialLoginResponse} "Existing user logged in"
+// @Success 201 {object} Response{data=SocialLoginResponse} "New user registered"
+// @Failure 400 {object} ErrorResponseBody "Validation error or invalid token"
+// @Failure 404 {object} ErrorResponseBody "Social login not enabled"
+// @Router /auth/social-login [post]
 func (h *AuthHandler) SocialLogin(c *gin.Context) {
 	if h.socialAuthService == nil {
 		RespondError(c, http.StatusNotFound, "NOT_FOUND", "social login is not enabled")
@@ -168,6 +240,15 @@ func (h *AuthHandler) SocialLogin(c *gin.Context) {
 }
 
 // ResendVerification handles POST /api/v1/auth/resend-verification
+// @Summary Resend verification email
+// @Description Resend the email verification link. Requires authentication. No-op if already verified.
+// @Tags auth
+// @Produce json
+// @Success 200 {object} Response{data=MessageResponse} "Verification email sent"
+// @Failure 401 {object} ErrorResponseBody "Unauthorized"
+// @Failure 404 {object} ErrorResponseBody "Registration not enabled"
+// @Security BearerAuth
+// @Router /auth/resend-verification [post]
 func (h *AuthHandler) ResendVerification(c *gin.Context) {
 	if h.registrationService == nil {
 		RespondError(c, http.StatusNotFound, "NOT_FOUND", "registration is not enabled")

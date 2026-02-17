@@ -17,11 +17,22 @@ import (
 
 // mockDuplicateFinder is a hand-written mock for port.DuplicateInvoiceFinder.
 type mockDuplicateFinder struct {
-	matches []port.DuplicateMatch
-	err     error
+	matches    []port.DuplicateMatch
+	err        error
+	calledGSTIN  string
+	calledInvNum string
+	calledFY     string
+	calledIRN    string
 }
 
-func (m *mockDuplicateFinder) FindDuplicates(_ context.Context, _, _ uuid.UUID, _, _ string) ([]port.DuplicateMatch, error) {
+func (m *mockDuplicateFinder) FindDuplicates(
+	_ context.Context, _, _ uuid.UUID,
+	sellerGSTIN, invoiceNumber, financialYear, irn string,
+) ([]port.DuplicateMatch, error) {
+	m.calledGSTIN = sellerGSTIN
+	m.calledInvNum = invoiceNumber
+	m.calledFY = financialYear
+	m.calledIRN = irn
 	return m.matches, m.err
 }
 
@@ -56,7 +67,7 @@ func TestValidationContext_Missing(t *testing.T) {
 
 // --- Duplicate validator tests ---
 
-func TestDuplicateInvoiceValidator_NoDuplicates(t *testing.T) {
+func TestDuplicateValidator_NoDuplicates(t *testing.T) {
 	finder := &mockDuplicateFinder{matches: nil}
 	v := invoice.DuplicateInvoiceValidator(finder)
 	ctx := invoice.WithValidationContext(context.Background(), uuid.New(), uuid.New())
@@ -68,10 +79,15 @@ func TestDuplicateInvoiceValidator_NoDuplicates(t *testing.T) {
 	assert.Contains(t, results[0].Message, "no duplicate")
 }
 
-func TestDuplicateInvoiceValidator_OneDuplicate(t *testing.T) {
+func TestDuplicateValidator_ExactIRNMatch(t *testing.T) {
 	finder := &mockDuplicateFinder{
 		matches: []port.DuplicateMatch{
-			{DocumentName: "Invoice-ABC.pdf", CreatedAt: time.Date(2025, 1, 10, 0, 0, 0, 0, time.UTC)},
+			{
+				DocumentID:   uuid.New(),
+				DocumentName: "Invoice-IRN.pdf",
+				MatchType:    "exact_irn",
+				CreatedAt:    time.Date(2025, 3, 10, 0, 0, 0, 0, time.UTC),
+			},
 		},
 	}
 	v := invoice.DuplicateInvoiceValidator(finder)
@@ -81,16 +97,19 @@ func TestDuplicateInvoiceValidator_OneDuplicate(t *testing.T) {
 	results := v.Validate(ctx, inv)
 	require.Len(t, results, 1)
 	assert.False(t, results[0].Passed)
-	assert.Contains(t, results[0].Message, "Invoice-ABC.pdf")
-	assert.Contains(t, results[0].Message, "2025-01-10")
-	assert.Equal(t, "1 duplicate(s) found", results[0].ActualValue)
+	assert.Contains(t, results[0].ActualValue, "error")
+	assert.Contains(t, results[0].Message, "exact_irn")
 }
 
-func TestDuplicateInvoiceValidator_MultipleDuplicates(t *testing.T) {
+func TestDuplicateValidator_StrongMatch(t *testing.T) {
 	finder := &mockDuplicateFinder{
 		matches: []port.DuplicateMatch{
-			{DocumentName: "Invoice-A.pdf", CreatedAt: time.Date(2025, 1, 15, 0, 0, 0, 0, time.UTC)},
-			{DocumentName: "Invoice-B.pdf", CreatedAt: time.Date(2025, 1, 10, 0, 0, 0, 0, time.UTC)},
+			{
+				DocumentID:   uuid.New(),
+				DocumentName: "Invoice-Strong.pdf",
+				MatchType:    "strong",
+				CreatedAt:    time.Date(2025, 2, 20, 0, 0, 0, 0, time.UTC),
+			},
 		},
 	}
 	v := invoice.DuplicateInvoiceValidator(finder)
@@ -100,12 +119,138 @@ func TestDuplicateInvoiceValidator_MultipleDuplicates(t *testing.T) {
 	results := v.Validate(ctx, inv)
 	require.Len(t, results, 1)
 	assert.False(t, results[0].Passed)
-	assert.Contains(t, results[0].Message, "Invoice-A.pdf")
-	assert.Contains(t, results[0].Message, "Invoice-B.pdf")
-	assert.Equal(t, "2 duplicate(s) found", results[0].ActualValue)
+	assert.Contains(t, results[0].ActualValue, "error")
+	assert.Contains(t, results[0].Message, "strong")
 }
 
-func TestDuplicateInvoiceValidator_EmptySellerGSTIN(t *testing.T) {
+func TestDuplicateValidator_WeakMatchOnly(t *testing.T) {
+	finder := &mockDuplicateFinder{
+		matches: []port.DuplicateMatch{
+			{
+				DocumentID:   uuid.New(),
+				DocumentName: "Invoice-Weak.pdf",
+				MatchType:    "weak",
+				CreatedAt:    time.Date(2025, 1, 5, 0, 0, 0, 0, time.UTC),
+			},
+		},
+	}
+	v := invoice.DuplicateInvoiceValidator(finder)
+	ctx := invoice.WithValidationContext(context.Background(), uuid.New(), uuid.New())
+
+	inv := validInvoice()
+	results := v.Validate(ctx, inv)
+	require.Len(t, results, 1)
+	assert.False(t, results[0].Passed)
+	assert.Contains(t, results[0].ActualValue, "warning")
+	assert.Contains(t, results[0].Message, "weak")
+}
+
+func TestDuplicateValidator_MixedTiers_EscalatesToError(t *testing.T) {
+	finder := &mockDuplicateFinder{
+		matches: []port.DuplicateMatch{
+			{
+				DocumentID:   uuid.New(),
+				DocumentName: "Invoice-Strong.pdf",
+				MatchType:    "strong",
+				CreatedAt:    time.Date(2025, 2, 15, 0, 0, 0, 0, time.UTC),
+			},
+			{
+				DocumentID:   uuid.New(),
+				DocumentName: "Invoice-Weak.pdf",
+				MatchType:    "weak",
+				CreatedAt:    time.Date(2025, 1, 10, 0, 0, 0, 0, time.UTC),
+			},
+		},
+	}
+	v := invoice.DuplicateInvoiceValidator(finder)
+	ctx := invoice.WithValidationContext(context.Background(), uuid.New(), uuid.New())
+
+	inv := validInvoice()
+	results := v.Validate(ctx, inv)
+	require.Len(t, results, 1)
+	assert.False(t, results[0].Passed)
+	assert.Equal(t, "2 duplicate(s) found [error]", results[0].ActualValue)
+}
+
+func TestDuplicateValidator_PassesFYToFinder(t *testing.T) {
+	finder := &mockDuplicateFinder{matches: nil}
+	v := invoice.DuplicateInvoiceValidator(finder)
+	ctx := invoice.WithValidationContext(context.Background(), uuid.New(), uuid.New())
+
+	inv := validInvoice()
+	inv.Invoice.InvoiceDate = "15-06-2025" // June 2025 → after April → FY 2025-26
+	results := v.Validate(ctx, inv)
+	require.Len(t, results, 1)
+	assert.True(t, results[0].Passed)
+	assert.Equal(t, "2025-26", finder.calledFY)
+}
+
+func TestDuplicateValidator_PassesFYBeforeApril(t *testing.T) {
+	finder := &mockDuplicateFinder{matches: nil}
+	v := invoice.DuplicateInvoiceValidator(finder)
+	ctx := invoice.WithValidationContext(context.Background(), uuid.New(), uuid.New())
+
+	inv := validInvoice()
+	inv.Invoice.InvoiceDate = "15-01-2025" // January 2025 → before April → FY 2024-25
+	results := v.Validate(ctx, inv)
+	require.Len(t, results, 1)
+	assert.True(t, results[0].Passed)
+	assert.Equal(t, "2024-25", finder.calledFY)
+}
+
+func TestDuplicateValidator_PassesIRNToFinder(t *testing.T) {
+	finder := &mockDuplicateFinder{matches: nil}
+	v := invoice.DuplicateInvoiceValidator(finder)
+	ctx := invoice.WithValidationContext(context.Background(), uuid.New(), uuid.New())
+
+	inv := validInvoice()
+	inv.Invoice.IRN = "ABCD1234"
+	results := v.Validate(ctx, inv)
+	require.Len(t, results, 1)
+	assert.True(t, results[0].Passed)
+	assert.Equal(t, "abcd1234", finder.calledIRN)
+}
+
+func TestDuplicateValidator_EmptyIRNPassedAsEmpty(t *testing.T) {
+	finder := &mockDuplicateFinder{matches: nil}
+	v := invoice.DuplicateInvoiceValidator(finder)
+	ctx := invoice.WithValidationContext(context.Background(), uuid.New(), uuid.New())
+
+	inv := validInvoice()
+	inv.Invoice.IRN = ""
+	results := v.Validate(ctx, inv)
+	require.Len(t, results, 1)
+	assert.True(t, results[0].Passed)
+	assert.Equal(t, "", finder.calledIRN)
+}
+
+func TestDuplicateValidator_UnparseableDate_EmptyFY(t *testing.T) {
+	finder := &mockDuplicateFinder{matches: nil}
+	v := invoice.DuplicateInvoiceValidator(finder)
+	ctx := invoice.WithValidationContext(context.Background(), uuid.New(), uuid.New())
+
+	inv := validInvoice()
+	inv.Invoice.InvoiceDate = "not-a-date"
+	results := v.Validate(ctx, inv)
+	require.Len(t, results, 1)
+	assert.True(t, results[0].Passed)
+	assert.Equal(t, "", finder.calledFY)
+}
+
+func TestDuplicateValidator_EmptyDate_EmptyFY(t *testing.T) {
+	finder := &mockDuplicateFinder{matches: nil}
+	v := invoice.DuplicateInvoiceValidator(finder)
+	ctx := invoice.WithValidationContext(context.Background(), uuid.New(), uuid.New())
+
+	inv := validInvoice()
+	inv.Invoice.InvoiceDate = ""
+	results := v.Validate(ctx, inv)
+	require.Len(t, results, 1)
+	assert.True(t, results[0].Passed)
+	assert.Equal(t, "", finder.calledFY)
+}
+
+func TestDuplicateValidator_EmptySellerGSTIN(t *testing.T) {
 	finder := &mockDuplicateFinder{}
 	v := invoice.DuplicateInvoiceValidator(finder)
 	ctx := invoice.WithValidationContext(context.Background(), uuid.New(), uuid.New())
@@ -118,7 +263,7 @@ func TestDuplicateInvoiceValidator_EmptySellerGSTIN(t *testing.T) {
 	assert.Contains(t, results[0].Message, "skipping")
 }
 
-func TestDuplicateInvoiceValidator_EmptyInvoiceNumber(t *testing.T) {
+func TestDuplicateValidator_EmptyInvoiceNumber(t *testing.T) {
 	finder := &mockDuplicateFinder{}
 	v := invoice.DuplicateInvoiceValidator(finder)
 	ctx := invoice.WithValidationContext(context.Background(), uuid.New(), uuid.New())
@@ -131,7 +276,7 @@ func TestDuplicateInvoiceValidator_EmptyInvoiceNumber(t *testing.T) {
 	assert.Contains(t, results[0].Message, "skipping")
 }
 
-func TestDuplicateInvoiceValidator_MissingContext(t *testing.T) {
+func TestDuplicateValidator_MissingContext(t *testing.T) {
 	finder := &mockDuplicateFinder{}
 	v := invoice.DuplicateInvoiceValidator(finder)
 	ctx := context.Background() // no WithValidationContext
@@ -143,7 +288,7 @@ func TestDuplicateInvoiceValidator_MissingContext(t *testing.T) {
 	assert.Contains(t, results[0].Message, "context missing")
 }
 
-func TestDuplicateInvoiceValidator_FinderError(t *testing.T) {
+func TestDuplicateValidator_FinderError(t *testing.T) {
 	finder := &mockDuplicateFinder{err: errors.New("db connection failed")}
 	v := invoice.DuplicateInvoiceValidator(finder)
 	ctx := invoice.WithValidationContext(context.Background(), uuid.New(), uuid.New())
@@ -155,7 +300,7 @@ func TestDuplicateInvoiceValidator_FinderError(t *testing.T) {
 	assert.Contains(t, results[0].Message, "unavailable")
 }
 
-func TestDuplicateInvoiceValidator_Metadata(t *testing.T) {
+func TestDuplicateValidator_Metadata(t *testing.T) {
 	finder := &mockDuplicateFinder{}
 	v := invoice.DuplicateInvoiceValidator(finder)
 

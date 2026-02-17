@@ -169,6 +169,18 @@ Request → Gin Router → Middleware (Logger → Auth → TenantGuard) → Hand
 | HSN | 2 | `logic.line_item.hsn_exists`, `xf.line_item.hsn_rate` | `invoice/hsn.go` |
 | Duplicate | 1 | `logic.invoice.duplicate` | `invoice/duplicate.go` |
 
+### Duplicate Detection Tiers
+
+The `logic.invoice.duplicate` validator uses three match tiers:
+
+| Tier | Match Criteria | Confidence | Effective Severity |
+|------|---------------|------------|-------------------|
+| `exact_irn` | Same IRN (64-char hex) | Guaranteed | Error |
+| `strong` | Seller GSTIN + Invoice Number + same Financial Year | Very high | Error |
+| `weak` | Seller GSTIN + Invoice Number (cross-FY) | Possible | Warning |
+
+`FindDuplicates` accepts `sellerGSTIN`, `invoiceNumber`, `financialYear` (derived by validator via `DeriveFinancialYear()`), and `irn` (lowercased). Tier 2 JOINs `document_summaries.invoice_date` for FY matching. Results include `MatchType` and `DocumentID` for frontend linking.
+
 ## Multi-Parser Architecture
 
 - **Providers**: Claude, Gemini, OpenAI — registered via `parser.RegisterProvider()` in `main.go`
@@ -248,4 +260,5 @@ Go 1.24, Gin, PostgreSQL 16 (sqlx + pgx/v5), AWS S3 (aws-sdk-go-v2), AWS SES v2,
 - **ReportFilters is a pointer**: `*domain.ReportFilters` (120 bytes) — gocritic hugeParam lint requires pointer passing
 - **Tally XML uses text/template**: Not `encoding/xml` — Tally element names like `ALLINVENTORYENTRIES.LIST` don't work with Go's xml struct tags. Template parsed at `init()`. Custom `xmlEscape` func handles `&<>"'` in dynamic values
 - **Tally amount signs**: Party ledger = positive (credit), tax ledgers = negative (debit), inventory = negative (debit). `ISDEEMEDPOSITIVE` = `"Yes"` for debit entries
+- **Duplicate detection uses document_summaries for FY matching**: Tier-2 (strong) matching JOINs `document_summaries` for the parsed `invoice_date` timestamp, avoiding JSONB date parsing in SQL. Summary must exist for tier-2 to match (non-blocking upsert means brief window where strong match may not fire for just-parsed docs)
 - **Stale processing docs**: Server crash mid-parse → doc stuck in `processing` (no staleness detector yet)
