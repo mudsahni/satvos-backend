@@ -510,7 +510,7 @@ func (h *CollectionHandler) RemovePermission(c *gin.Context) {
 
 // ExportCSV handles GET /api/v1/collections/:id/export/csv
 // @Summary Export collection documents as CSV
-// @Description Download all documents in a collection as a CSV file for GST reconciliation
+// @Description Download collection documents as CSV with one row per invoice line item for GST reconciliation
 // @Tags collections
 // @Produce text/csv
 // @Param id path string true "Collection ID (UUID)"

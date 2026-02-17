@@ -17,7 +17,7 @@ import (
 // UTF-8 BOM bytes for Excel compatibility on Windows.
 var BOM = []byte{0xEF, 0xBB, 0xBF}
 
-// columns defines the CSV header row (33 columns).
+// columns defines the CSV header row.
 var columns = []string{
 	"Document Name",
 	"Parsing Status",
@@ -52,6 +52,21 @@ var columns = []string{
 	"Reviewer Notes",
 	"Parsed At",
 	"Created At",
+	"Line Item Index",
+	"Line Description",
+	"HSN/SAC Code",
+	"Quantity",
+	"Unit",
+	"Unit Price",
+	"Line Discount",
+	"Line Taxable Amount",
+	"Line CGST Rate",
+	"Line CGST Amount",
+	"Line SGST Rate",
+	"Line SGST Amount",
+	"Line IGST Rate",
+	"Line IGST Amount",
+	"Line Total",
 }
 
 // Writer wraps csv.Writer for exporting documents as CSV.
@@ -64,17 +79,20 @@ func NewWriter(w io.Writer) *Writer {
 	return &Writer{csv: csv.NewWriter(w)}
 }
 
-// WriteHeader writes the 33-column header row.
+// WriteHeader writes the header row.
 func (w *Writer) WriteHeader() error {
 	return w.csv.Write(columns)
 }
 
 // WriteDocuments converts a batch of documents to CSV rows and writes them.
+// Export format is row-per-line-item with document/invoice columns repeated.
 func (w *Writer) WriteDocuments(docs []domain.Document) error {
 	for i := range docs {
-		row := documentToRow(&docs[i])
-		if err := w.csv.Write(row); err != nil {
-			return err
+		rows := documentToRows(&docs[i])
+		for j := range rows {
+			if err := w.csv.Write(rows[j]); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -90,10 +108,10 @@ func (w *Writer) Error() error {
 	return w.csv.Error()
 }
 
-// documentToRow converts a single document to a 33-element string slice.
-// If the document is not successfully parsed or StructuredData is invalid,
-// metadata columns are filled and invoice columns are left empty.
-func documentToRow(doc *domain.Document) []string {
+// documentToRows converts a document to CSV rows.
+// For parsed documents with line items: one row per line item.
+// Otherwise: one row with metadata/invoice fields and empty line-item fields.
+func documentToRows(doc *domain.Document) [][]string {
 	row := make([]string, len(columns))
 
 	// Metadata columns (always filled)
@@ -108,12 +126,12 @@ func documentToRow(doc *domain.Document) []string {
 
 	// Invoice columns: only if parsing completed and JSON is valid
 	if doc.ParsingStatus != domain.ParsingStatusCompleted || len(doc.StructuredData) == 0 {
-		return row
+		return [][]string{row}
 	}
 
 	var inv invoice.GSTInvoice
 	if err := json.Unmarshal(doc.StructuredData, &inv); err != nil {
-		return row
+		return [][]string{row}
 	}
 
 	row[5] = inv.Invoice.InvoiceNumber
@@ -142,7 +160,33 @@ func documentToRow(doc *domain.Document) []string {
 	row[28] = inv.Invoice.DueDate
 	row[29] = strconv.Itoa(len(inv.LineItems))
 
-	return row
+	if len(inv.LineItems) == 0 {
+		return [][]string{row}
+	}
+
+	rows := make([][]string, 0, len(inv.LineItems))
+	for i := range inv.LineItems {
+		li := inv.LineItems[i]
+		r := append([]string(nil), row...)
+		r[33] = strconv.Itoa(i + 1)
+		r[34] = li.Description
+		r[35] = li.HSNSACCode
+		r[36] = formatMoney(li.Quantity)
+		r[37] = li.Unit
+		r[38] = formatMoney(li.UnitPrice)
+		r[39] = formatMoney(li.Discount)
+		r[40] = formatMoney(li.TaxableAmount)
+		r[41] = formatMoney(li.CGSTRate)
+		r[42] = formatMoney(li.CGSTAmount)
+		r[43] = formatMoney(li.SGSTRate)
+		r[44] = formatMoney(li.SGSTAmount)
+		r[45] = formatMoney(li.IGSTRate)
+		r[46] = formatMoney(li.IGSTAmount)
+		r[47] = formatMoney(li.Total)
+		rows = append(rows, r)
+	}
+
+	return rows
 }
 
 func formatMoney(v float64) string {
