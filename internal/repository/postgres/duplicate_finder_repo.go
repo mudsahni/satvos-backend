@@ -83,7 +83,6 @@ func (r *duplicateFinderRepo) findDuplicates(
 	if includeTier2 && financialYear != "" {
 		fyArg := fmt.Sprintf("$%d", nextArg)
 		args = append(args, financialYear)
-		nextArg++
 
 		excludeClause := ""
 		if len(higherTierIDs) > 0 {
