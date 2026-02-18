@@ -31,4 +31,8 @@ var (
 	ErrSocialAuthTokenInvalid      = errors.New("social auth token is invalid or expired")
 	ErrPasswordLoginNotAllowed     = errors.New("this account uses social login; password login is not available")
 	ErrAssigneeCannotReview        = errors.New("assignee does not have review permission on this collection")
+	ErrServiceAccountReview        = errors.New("service accounts cannot review or be assigned documents")
+	ErrServiceAccountNotFound      = errors.New("service account not found")
+	ErrAPIKeyInvalid               = errors.New("invalid API key")
+	ErrAPIKeyRevoked               = errors.New("API key has been revoked")
 )

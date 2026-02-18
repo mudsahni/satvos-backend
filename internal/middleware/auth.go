@@ -13,16 +13,23 @@ import (
 )
 
 const (
-	ContextKeyTenantID = "tenant_id"
-	ContextKeyUserID   = "user_id"
-	ContextKeyEmail    = "email"
-	ContextKeyRole     = "role"
-	ContextKeyClaims   = "claims"
+	ContextKeyTenantID          = "tenant_id"
+	ContextKeyUserID            = "user_id"
+	ContextKeyEmail             = "email"
+	ContextKeyRole              = "role"
+	ContextKeyClaims            = "claims"
+	ContextKeyServiceAccountID  = "service_account_id"
+	ContextKeyIsServiceAccount  = "is_service_account"
 )
 
-// AuthMiddleware returns Gin middleware that validates JWT tokens and injects
-// tenant and user context.
-func AuthMiddleware(authService service.AuthService) gin.HandlerFunc {
+// AuthMiddleware returns Gin middleware that validates JWT tokens (or API keys for
+// service accounts) and injects tenant and user context.
+func AuthMiddleware(authService service.AuthService, saSvc ...service.ServiceAccountService) gin.HandlerFunc {
+	var serviceAccountSvc service.ServiceAccountService
+	if len(saSvc) > 0 {
+		serviceAccountSvc = saSvc[0]
+	}
+
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
@@ -34,6 +41,29 @@ func AuthMiddleware(authService service.AuthService) gin.HandlerFunc {
 		}
 
 		token := strings.TrimPrefix(authHeader, "Bearer ")
+
+		// API key path: tokens starting with "sk_" are service account keys
+		if strings.HasPrefix(token, "sk_") && serviceAccountSvc != nil {
+			sa, err := serviceAccountSvc.Authenticate(c.Request.Context(), token)
+			if err != nil {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+					"success": false,
+					"error":   gin.H{"code": "UNAUTHORIZED", "message": "invalid or expired API key"},
+				})
+				return
+			}
+
+			c.Set(ContextKeyTenantID, sa.TenantID)
+			c.Set(ContextKeyUserID, sa.ID) // service account ID used as user ID
+			c.Set(ContextKeyEmail, "")
+			c.Set(ContextKeyRole, string(domain.RoleService))
+			c.Set(ContextKeyServiceAccountID, sa.ID)
+			c.Set(ContextKeyIsServiceAccount, true)
+			c.Next()
+			return
+		}
+
+		// JWT path: standard user token
 		claims, err := authService.ValidateToken(token)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
@@ -48,8 +78,27 @@ func AuthMiddleware(authService service.AuthService) gin.HandlerFunc {
 		c.Set(ContextKeyEmail, claims.Email)
 		c.Set(ContextKeyRole, string(claims.Role))
 		c.Set(ContextKeyClaims, claims)
+		c.Set(ContextKeyIsServiceAccount, false)
 		c.Next()
 	}
+}
+
+// IsServiceAccount returns true if the current request is authenticated via API key.
+func IsServiceAccount(c *gin.Context) bool {
+	val, exists := c.Get(ContextKeyIsServiceAccount)
+	if !exists {
+		return false
+	}
+	return val.(bool)
+}
+
+// GetServiceAccountID extracts the service account ID from the Gin context.
+func GetServiceAccountID(c *gin.Context) (uuid.UUID, error) {
+	val, exists := c.Get(ContextKeyServiceAccountID)
+	if !exists {
+		return uuid.Nil, domain.ErrUnauthorized
+	}
+	return val.(uuid.UUID), nil
 }
 
 // RequireRole returns middleware that checks the user's role against allowed roles.

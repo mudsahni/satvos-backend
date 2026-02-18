@@ -362,6 +362,22 @@ type DocumentAuditEntry struct {
 	CreatedAt  time.Time        `db:"created_at" json:"created_at"`
 }
 
+// ServiceAccount represents a non-human API identity for programmatic access.
+type ServiceAccount struct {
+	ID           uuid.UUID `db:"id" json:"id"`
+	TenantID     uuid.UUID `db:"tenant_id" json:"tenant_id"`
+	Name         string    `db:"name" json:"name"`
+	Description  string    `db:"description" json:"description"`
+	APIKeyPrefix string    `db:"api_key_prefix" json:"api_key_prefix"` // first 8 chars of the key, for identification
+	APIKeyHash   string    `db:"api_key_hash" json:"-"`
+	IsActive     bool      `db:"is_active" json:"is_active"`
+	CreatedBy    uuid.UUID `db:"created_by" json:"created_by"`
+	LastUsedAt   *time.Time `db:"last_used_at" json:"last_used_at,omitempty"`
+	ExpiresAt    *time.Time `db:"expires_at" json:"expires_at,omitempty"`
+	CreatedAt    time.Time  `db:"created_at" json:"created_at"`
+	UpdatedAt    time.Time  `db:"updated_at" json:"updated_at"`
+}
+
 // FileMeta stores metadata about an uploaded file.
 type FileMeta struct {
 	ID           uuid.UUID  `db:"id" json:"id"`

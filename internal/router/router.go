@@ -24,8 +24,10 @@ func Setup(
 	documentH *handler.DocumentHandler,
 	statsH *handler.StatsHandler,
 	reportH *handler.ReportHandler,
+	serviceAccountH *handler.ServiceAccountHandler,
 	corsOrigins []string,
 	userRepo port.UserRepository,
+	saSvc service.ServiceAccountService,
 ) *gin.Engine {
 	r := gin.New()
 
@@ -56,9 +58,9 @@ func Setup(
 	auth.POST("/reset-password", authH.ResetPassword)
 	auth.POST("/social-login", authH.SocialLogin)
 
-	// Protected routes - require valid JWT
+	// Protected routes - require valid JWT or API key
 	protected := v1.Group("")
-	protected.Use(middleware.AuthMiddleware(authSvc))
+	protected.Use(middleware.AuthMiddleware(authSvc, saSvc))
 
 	// Resend verification (authenticated, no email verification required)
 	protected.POST("/auth/resend-verification", authH.ResendVerification)
@@ -66,7 +68,7 @@ func Setup(
 	// File routes
 	files := protected.Group("/files")
 	files.POST("/upload",
-		middleware.RequireRole(domain.RoleAdmin, domain.RoleManager, domain.RoleMember, domain.RoleFree),
+		middleware.RequireRole(domain.RoleAdmin, domain.RoleManager, domain.RoleMember, domain.RoleFree, domain.RoleService),
 		middleware.RequireEmailVerified(userRepo),
 		fileH.Upload)
 	files.GET("", fileH.List)
@@ -90,7 +92,10 @@ func Setup(
 
 	// Document routes
 	documents := protected.Group("/documents")
-	documents.POST("", middleware.RequireEmailVerified(userRepo), documentH.Create)
+	documents.POST("",
+		middleware.RequireRole(domain.RoleAdmin, domain.RoleManager, domain.RoleMember, domain.RoleFree, domain.RoleService),
+		middleware.RequireEmailVerified(userRepo),
+		documentH.Create)
 	documents.GET("", documentH.List)
 	documents.GET("/search/tags", documentH.SearchByTag)
 	documents.GET("/review-queue", documentH.ReviewQueue)
@@ -129,9 +134,22 @@ func Setup(
 	users.PUT("/:id", userH.Update)
 	users.DELETE("/:id", middleware.RequireRole(domain.RoleAdmin), userH.Delete)
 
+	// Service account management (admin only)
+	sa := protected.Group("/service-accounts")
+	sa.Use(middleware.RequireRole(domain.RoleAdmin))
+	sa.POST("", serviceAccountH.Create)
+	sa.GET("", serviceAccountH.List)
+	sa.GET("/:id", serviceAccountH.GetByID)
+	sa.POST("/:id/rotate-key", serviceAccountH.RotateKey)
+	sa.POST("/:id/revoke", serviceAccountH.Revoke)
+	sa.DELETE("/:id", serviceAccountH.Delete)
+	sa.POST("/:id/permissions", serviceAccountH.SetPermission)
+	sa.GET("/:id/permissions", serviceAccountH.ListPermissions)
+	sa.DELETE("/:id/permissions/:collectionId", serviceAccountH.RemovePermission)
+
 	// Admin routes - tenant management
 	admin := v1.Group("/admin")
-	admin.Use(middleware.AuthMiddleware(authSvc))
+	admin.Use(middleware.AuthMiddleware(authSvc, saSvc))
 	admin.Use(middleware.RequireRole(domain.RoleAdmin))
 	admin.POST("/tenants", tenantH.Create)
 	admin.GET("/tenants", tenantH.List)

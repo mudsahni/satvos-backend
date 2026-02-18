@@ -109,8 +109,8 @@ func (s *collectionService) requirePermission(ctx context.Context, collectionID,
 }
 
 func (s *collectionService) Create(ctx context.Context, input *CreateCollectionInput) (*domain.Collection, error) {
-	// Viewers cannot create collections
-	if input.Role == domain.RoleViewer {
+	// Viewers and service accounts cannot create collections
+	if input.Role == domain.RoleViewer || input.Role == domain.RoleService {
 		return nil, domain.ErrInsufficientRole
 	}
 

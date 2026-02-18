@@ -175,6 +175,36 @@ func (r *documentRepo) ListByUserCollections(ctx context.Context, tenantID, user
 	return docs, total, nil
 }
 
+func (r *documentRepo) ListByServiceAccountCollections(ctx context.Context, tenantID, saID uuid.UUID, assignedTo *uuid.UUID, offset, limit int) ([]domain.Document, int, error) {
+	countQuery := `SELECT COUNT(*) FROM documents d
+		 INNER JOIN service_account_permissions sap ON sap.collection_id = d.collection_id
+		 WHERE d.tenant_id = $1 AND sap.service_account_id = $2`
+	selectQuery := `SELECT d.* FROM documents d
+		 INNER JOIN service_account_permissions sap ON sap.collection_id = d.collection_id
+		 WHERE d.tenant_id = $1 AND sap.service_account_id = $2`
+	args := []interface{}{tenantID, saID}
+
+	if assignedTo != nil {
+		countQuery += fmt.Sprintf(" AND d.assigned_to = $%d", len(args)+1)
+		selectQuery += fmt.Sprintf(" AND d.assigned_to = $%d", len(args)+1)
+		args = append(args, *assignedTo)
+	}
+
+	var total int
+	if err := r.db.GetContext(ctx, &total, countQuery, args...); err != nil {
+		return nil, 0, fmt.Errorf("documentRepo.ListByServiceAccountCollections count: %w", err)
+	}
+
+	selectQuery += fmt.Sprintf(" ORDER BY d.created_at DESC LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
+	args = append(args, limit, offset)
+
+	var docs []domain.Document
+	if err := r.db.SelectContext(ctx, &docs, selectQuery, args...); err != nil {
+		return nil, 0, fmt.Errorf("documentRepo.ListByServiceAccountCollections: %w", err)
+	}
+	return docs, total, nil
+}
+
 func (r *documentRepo) UpdateStructuredData(ctx context.Context, doc *domain.Document) error {
 	doc.UpdatedAt = time.Now().UTC()
 	result, err := r.db.ExecContext(ctx,

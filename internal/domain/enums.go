@@ -40,6 +40,7 @@ const (
 	RoleMember  UserRole = "member"
 	RoleViewer  UserRole = "viewer"
 	RoleFree    UserRole = "free"
+	RoleService UserRole = "service"
 )
 
 // ValidUserRoles maps valid role strings for validation.
@@ -49,6 +50,7 @@ var ValidUserRoles = map[UserRole]bool{
 	RoleMember:  true,
 	RoleViewer:  true,
 	RoleFree:    true,
+	RoleService: true,
 }
 
 // RoleLevel returns the numeric level for role comparison.
@@ -64,6 +66,8 @@ func RoleLevel(role UserRole) int {
 	case RoleViewer:
 		return 1
 	case RoleFree:
+		return 0
+	case RoleService:
 		return 0
 	default:
 		return 0
@@ -204,6 +208,7 @@ type AuthProvider string
 const (
 	AuthProviderEmail  AuthProvider = "email"
 	AuthProviderGoogle AuthProvider = "google"
+	AuthProviderAPIKey AuthProvider = "api_key"
 )
 
 // AuditAction identifies the type of document mutation recorded in the audit log.
