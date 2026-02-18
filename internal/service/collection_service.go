@@ -109,8 +109,8 @@ func (s *collectionService) requirePermission(ctx context.Context, collectionID,
 }
 
 func (s *collectionService) Create(ctx context.Context, input *CreateCollectionInput) (*domain.Collection, error) {
-	// Viewers cannot create collections
-	if input.Role == domain.RoleViewer {
+	// Viewers and service accounts cannot create collections
+	if input.Role == domain.RoleViewer || input.Role == domain.RoleService {
 		return nil, domain.ErrInsufficientRole
 	}
 
@@ -160,7 +160,11 @@ func (s *collectionService) List(ctx context.Context, tenantID, userID uuid.UUID
 	if role == domain.RoleAdmin || role == domain.RoleManager || role == domain.RoleMember {
 		return s.collectionRepo.ListByTenant(ctx, tenantID, offset, limit)
 	}
-	// Viewer only sees collections they have explicit permission for
+	// Service accounts see only collections they have explicit permission for (via service_account_permissions)
+	if role == domain.RoleService {
+		return s.collectionRepo.ListByServiceAccount(ctx, tenantID, userID, offset, limit)
+	}
+	// Viewer/free sees only collections they have explicit permission for (via collection_permissions)
 	return s.collectionRepo.ListByUser(ctx, tenantID, userID, offset, limit)
 }
 

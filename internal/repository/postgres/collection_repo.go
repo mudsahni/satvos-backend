@@ -78,6 +78,31 @@ func (r *collectionRepo) ListByUser(ctx context.Context, tenantID, userID uuid.U
 	return collections, total, nil
 }
 
+func (r *collectionRepo) ListByServiceAccount(ctx context.Context, tenantID, saID uuid.UUID, offset, limit int) ([]domain.Collection, int, error) {
+	var total int
+	err := r.db.GetContext(ctx, &total,
+		`SELECT COUNT(*) FROM collections c
+		 INNER JOIN service_account_permissions sap ON sap.collection_id = c.id AND sap.tenant_id = c.tenant_id
+		 WHERE c.tenant_id = $1 AND sap.service_account_id = $2`,
+		tenantID, saID)
+	if err != nil {
+		return nil, 0, fmt.Errorf("collectionRepo.ListByServiceAccount count: %w", err)
+	}
+
+	var collections []domain.Collection
+	err = r.db.SelectContext(ctx, &collections,
+		`SELECT c.*, (SELECT COUNT(*) FROM documents d WHERE d.collection_id = c.id) AS document_count
+		 FROM collections c
+		 INNER JOIN service_account_permissions sap ON sap.collection_id = c.id AND sap.tenant_id = c.tenant_id
+		 WHERE c.tenant_id = $1 AND sap.service_account_id = $2
+		 ORDER BY c.created_at DESC LIMIT $3 OFFSET $4`,
+		tenantID, saID, limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("collectionRepo.ListByServiceAccount: %w", err)
+	}
+	return collections, total, nil
+}
+
 func (r *collectionRepo) ListByTenant(ctx context.Context, tenantID uuid.UUID, offset, limit int) ([]domain.Collection, int, error) {
 	var total int
 	err := r.db.GetContext(ctx, &total,

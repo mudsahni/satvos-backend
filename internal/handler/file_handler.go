@@ -130,7 +130,7 @@ func (h *FileHandler) List(c *gin.Context) {
 
 	var files []domain.FileMeta
 	var total int
-	if role == domain.RoleFree {
+	if role == domain.RoleFree || role == domain.RoleService {
 		files, total, err = h.fileService.ListByUploader(c.Request.Context(), tenantID, userID, offset, limit)
 	} else {
 		files, total, err = h.fileService.List(c.Request.Context(), tenantID, offset, limit)

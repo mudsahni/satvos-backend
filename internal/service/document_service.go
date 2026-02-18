@@ -91,6 +91,7 @@ type DocumentServiceDeps struct {
 	TagRepo     port.DocumentTagRepository
 	AuditRepo   port.DocumentAuditRepository
 	SummaryRepo port.DocumentSummaryRepository
+	SAPermRepo  port.ServiceAccountPermissionRepository // optional — enables service account access
 	Parser      port.DocumentParser
 	MergeParser port.DocumentParser // optional — enables dual-parse mode
 	Storage     port.ObjectStorage
@@ -105,6 +106,7 @@ type documentService struct {
 	tagRepo     port.DocumentTagRepository
 	auditRepo   port.DocumentAuditRepository
 	summaryRepo port.DocumentSummaryRepository
+	saPermRepo  port.ServiceAccountPermissionRepository
 	parser      port.DocumentParser
 	mergeParser port.DocumentParser // optional merge parser for dual mode
 	storage     port.ObjectStorage
@@ -121,6 +123,7 @@ func NewDocumentService(deps *DocumentServiceDeps) DocumentService {
 		tagRepo:     deps.TagRepo,
 		auditRepo:   deps.AuditRepo,
 		summaryRepo: deps.SummaryRepo,
+		saPermRepo:  deps.SAPermRepo,
 		parser:      deps.Parser,
 		mergeParser: deps.MergeParser,
 		storage:     deps.Storage,
@@ -129,7 +132,14 @@ func NewDocumentService(deps *DocumentServiceDeps) DocumentService {
 }
 
 // requireCollectionPerm delegates to the shared RequireCollectionPerm helper.
+// For service accounts, it checks the service_account_permissions table instead.
 func (s *documentService) requireCollectionPerm(ctx context.Context, collectionID, userID uuid.UUID, role domain.UserRole, minLevel domain.CollectionPermission) error {
+	if role == domain.RoleService {
+		if s.saPermRepo == nil {
+			return domain.ErrCollectionPermDenied
+		}
+		return RequireServiceAccountCollectionPerm(ctx, s.saPermRepo, collectionID, userID, minLevel)
+	}
 	return RequireCollectionPerm(ctx, s.permRepo, collectionID, userID, role, minLevel)
 }
 
@@ -578,11 +588,20 @@ func (s *documentService) ListByTenant(ctx context.Context, tenantID, userID uui
 	if role == domain.RoleAdmin || role == domain.RoleManager || role == domain.RoleMember {
 		return s.docRepo.ListByTenant(ctx, tenantID, assignedTo, offset, limit)
 	}
-	// Viewer sees only documents in collections they have access to
+	// Service accounts see only documents in collections they have explicit permission for
+	if role == domain.RoleService {
+		return s.docRepo.ListByServiceAccountCollections(ctx, tenantID, userID, assignedTo, offset, limit)
+	}
+	// Viewer/free sees only documents in collections they have access to
 	return s.docRepo.ListByUserCollections(ctx, tenantID, userID, assignedTo, offset, limit)
 }
 
 func (s *documentService) UpdateReview(ctx context.Context, input *UpdateReviewInput) (*domain.Document, error) {
+	// Service accounts cannot review documents
+	if input.Role == domain.RoleService {
+		return nil, domain.ErrServiceAccountReview
+	}
+
 	doc, err := s.docRepo.GetByID(ctx, input.TenantID, input.DocumentID)
 	if err != nil {
 		return nil, err
@@ -617,6 +636,11 @@ func (s *documentService) UpdateReview(ctx context.Context, input *UpdateReviewI
 }
 
 func (s *documentService) AssignDocument(ctx context.Context, input *AssignDocumentInput) (*domain.Document, error) {
+	// Service accounts cannot assign or be assigned documents
+	if input.CallerRole == domain.RoleService {
+		return nil, domain.ErrServiceAccountReview
+	}
+
 	doc, err := s.docRepo.GetByID(ctx, input.TenantID, input.DocumentID)
 	if err != nil {
 		return nil, err

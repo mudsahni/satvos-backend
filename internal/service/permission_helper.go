@@ -37,6 +37,25 @@ func RequireCollectionPerm(ctx context.Context, permRepo port.CollectionPermissi
 	return nil
 }
 
+// ServiceAccountCollectionPerm looks up the explicit collection permission for a service account.
+// Service accounts have no implicit permissions — only explicit grants in service_account_permissions.
+func ServiceAccountCollectionPerm(ctx context.Context, saPermRepo port.ServiceAccountPermissionRepository, collectionID, serviceAccountID uuid.UUID) domain.CollectionPermission {
+	perm, err := saPermRepo.GetByAccountAndCollection(ctx, serviceAccountID, collectionID)
+	if err != nil {
+		return ""
+	}
+	return perm.Permission
+}
+
+// RequireServiceAccountCollectionPerm checks that a service account has at least the minimum permission.
+func RequireServiceAccountCollectionPerm(ctx context.Context, saPermRepo port.ServiceAccountPermissionRepository, collectionID, serviceAccountID uuid.UUID, minLevel domain.CollectionPermission) error {
+	eff := ServiceAccountCollectionPerm(ctx, saPermRepo, collectionID, serviceAccountID)
+	if domain.CollectionPermLevel(eff) < domain.CollectionPermLevel(minLevel) {
+		return domain.ErrCollectionPermDenied
+	}
+	return nil
+}
+
 // CreatePersonalCollection creates a personal collection for a user and assigns them owner permission.
 func CreatePersonalCollection(ctx context.Context, collRepo port.CollectionRepository, permRepo port.CollectionPermissionRepository, tenantID, userID uuid.UUID, userName string) (*domain.Collection, error) {
 	collection := &domain.Collection{

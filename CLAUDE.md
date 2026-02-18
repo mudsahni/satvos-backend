@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-SATVOS is a multi-tenant GST document processing service in Go (hexagonal architecture). JWT auth, 5-tier RBAC (admin/manager/member/viewer/free), AWS S3 storage, LLM-powered invoice parsing (multi-provider with dual-parse merge), 59-rule validation engine with reconciliation tiering, document tagging, document audit trail, financial reports (7 endpoints over materialized summaries), free-tier self-registration with quotas and email verification, password reset, and Google social login.
+SATVOS is a multi-tenant GST document processing service in Go (hexagonal architecture). JWT auth, 6-tier RBAC (admin/manager/member/viewer/free/service), AWS S3 storage, LLM-powered invoice parsing (multi-provider with dual-parse merge), 59-rule validation engine with reconciliation tiering, document tagging, document audit trail, financial reports (7 endpoints over materialized summaries), free-tier self-registration with quotas and email verification, password reset, Google social login, and API key-based service accounts for programmatic access.
 
 ## Key Commands
 
@@ -37,7 +37,8 @@ internal/
     errors.go                Sentinel errors (ErrNotFound, ErrForbidden, ErrQuotaExceeded, etc.)
   handler/
     auth_handler.go          login, refresh, register, verify-email, resend-verification, forgot/reset-password, social-login
-    file_handler.go          upload, list, get, delete (free: own files only)
+    service_account_handler.go  CRUD /service-accounts, rotate-key, revoke, permissions (admin only)
+    file_handler.go          upload, list, get, delete (free/service: own files only)
     collection_handler.go    CRUD, batch upload, permissions, CSV export, Tally XML export
     document_handler.go      CRUD, retry, review, assignment, review-queue, validation, tags, search, structured-data edit, audit trail
     user_handler.go          CRUD /users
@@ -47,7 +48,7 @@ internal/
     health_handler.go        GET /healthz, GET /readyz
     response.go              Standard envelope (success/data/error/meta) + error mapping
   middleware/
-    auth.go                  JWT validation + tenant/user/role injection, RequireEmailVerified
+    auth.go                  JWT validation + API key auth + tenant/user/role injection, RequireEmailVerified
     cors.go                  CORS (SATVOS_CORS_ALLOWED_ORIGINS)
     tenant.go                Tenant context guard
     logger.go                Request ID, logging, panic recovery
@@ -190,13 +191,30 @@ The `logic.invoice.duplicate` validator uses three match tiers:
 - **Field provenance**: JSONB recording `"agree"`, `"primary"`, `"secondary"`, `"primary_format"`, `"secondary_format"`, `"disagreement"`, or `"manual_edit"`
 - **Config**: `SATVOS_PARSER_{PRIMARY,SECONDARY,TERTIARY}_{PROVIDER,API_KEY,MODEL}`. Legacy flat fields still work
 
+## Service Accounts
+
+- **Purpose**: Non-human API identities for programmatic access (ERP integrations, batch processing, automation)
+- **Auth**: API key-based (`sk_<64-hex-chars>`). Keys are SHA-256 hashed, prefix-indexed for lookup. `Authorization: Bearer sk_...`
+- **Role**: `RoleService` (level 0, no implicit collection access). All access is via explicit `service_account_permissions` grants
+- **Management**: Admin-only CRUD under `POST/GET/DELETE /api/v1/service-accounts`, plus `POST /:id/rotate-key`, `POST /:id/revoke`
+- **Permissions**: `POST/GET/DELETE /api/v1/service-accounts/:id/permissions` — grants editor/viewer/owner on specific collections
+- **Restrictions**: Cannot review documents (`PUT /documents/:id/review`), cannot be assigned documents (`PUT /documents/:id/assign`), cannot create collections, cannot manage users/tenants
+- **Allowed**: Upload files, create/list/get documents, validate, manage tags, read reports/stats, export CSV/Tally (all scoped to permitted collections)
+- **File isolation**: Like free tier — only sees files it uploaded
+- **Key rotation**: `POST /service-accounts/:id/rotate-key` generates new key, invalidates old one
+- **Expiry**: Optional `expires_at` on creation. Expired keys return `ErrAPIKeyRevoked`
+- **Last used tracking**: `last_used_at` updated non-blocking on each API key authentication
+- **Audit trail**: Service account ID recorded as `user_id` in audit entries — identifiable by `RoleService` role
+- **DB tables**: `service_accounts` (keys, metadata), `service_account_permissions` (collection grants)
+- **Migration**: `000025_create_service_accounts.up.sql`
+
 ## Key Conventions
 
 - **Env config**: All `SATVOS_` prefixed. See `internal/config/config.go` for all vars and defaults
 - **Response envelope**: `{"success": bool, "data": ..., "error": ..., "meta": ...}` from `handler/response.go`
 - **Tenant isolation**: Every DB query includes `tenant_id` from JWT claims
 - **Error mapping**: Domain errors → HTTP codes in `handler/response.go`
-- **Tenant roles**: admin (level 4, implicit owner) > manager (3, editor) > member (2, viewer) > viewer (1, no implicit) > free (0, no implicit). Effective perm = `max(implicit, explicit)`. No cap — explicit owner grant on a viewer is respected. Helpers: `RoleLevel()`, `ImplicitCollectionPerm()`
+- **Tenant roles**: admin (level 4, implicit owner) > manager (3, editor) > member (2, viewer) > viewer (1, no implicit) > free (0, no implicit) > service (0, no implicit, separate permission table). Effective perm = `max(implicit, explicit)`. No cap — explicit owner grant on a viewer is respected. Service accounts use `service_account_permissions` table instead of `collection_permissions`. Helpers: `RoleLevel()`, `ImplicitCollectionPerm()`, `ServiceAccountCollectionPerm()`
 - **Free tier**: Self-registration → shared "satvos" tenant, `free` role, personal collection (owner), per-user monthly quota (default 5). File listing filtered by uploader. Quota: `CheckAndIncrementQuota()` atomic SQL, 30-day period, `limit=0` → unlimited
 - **Registration**: `POST /auth/register` → `RegistrationService` creates user + collection + tokens + sends verification email. Email failure doesn't fail registration. Disable by passing nil `RegistrationService` to `NewAuthHandler`
 - **Email verification**: JWT `"email-verification"` audience, 24h expiry. `RequireEmailVerified` middleware checks DB for `free` role only. Gates: `POST /files/upload`, `POST /documents`. Config: `SATVOS_EMAIL_PROVIDER` ("ses"/"noop"), `SATVOS_EMAIL_FROM_ADDRESS`, `SATVOS_EMAIL_FRONTEND_URL`
@@ -232,6 +250,7 @@ Go 1.24, Gin, PostgreSQL 16 (sqlx + pgx/v5), AWS S3 (aws-sdk-go-v2), AWS SES v2,
 - **Modifying email verification**: Service in `registration_service.go`. Middleware in `middleware/auth.go`. Sender in `port/email.go` → `email/ses/` or `email/noop/`
 - **Modifying password reset**: Service in `service/password_reset_service.go`. Repo in `repository/postgres/user_repo.go`. Handler in `handler/auth_handler.go`
 - **Adding a social login provider**: Implement `port.SocialTokenVerifier` in `auth/<provider>/`, register in `main.go` verifiers map, add `AuthProvider` const in `domain/enums.go`
+- **Modifying service accounts**: Model in `domain/models.go` (`ServiceAccount`). Port in `port/service_account_repository.go`. Repo in `repository/postgres/service_account_repo.go`. Service in `service/service_account_service.go`. Handler in `handler/service_account_handler.go`. Routes in `router/router.go` (`service-accounts` group). Auth middleware in `middleware/auth.go` (API key path). Permission helper in `service/permission_helper.go` (`ServiceAccountCollectionPerm`)
 - **Modifying audit trail**: Domain in `domain/enums.go` (`AuditAction` consts). Port in `port/document_audit_repository.go`. Repo in `repository/postgres/document_audit_repo.go`. Service helper in `document_service.go` (`audit()` method). Handler in `document_handler.go` (`ListAudit`). Add new actions: add const to `domain/enums.go`, add `s.audit(...)` call in service method
 - **Modifying reports**: Domain row types in `domain/models.go`. Port in `port/report_repository.go`. Repo queries in `repository/postgres/report_repo.go`. Service in `service/report_service.go`. Handler in `handler/report_handler.go`. Routes in `router/router.go` (`reports` group). Summary table in `repository/postgres/document_summary_repo.go`. Backfill CLI in `cmd/backfill/main.go`
 
@@ -254,7 +273,7 @@ Go 1.24, Gin, PostgreSQL 16 (sqlx + pgx/v5), AWS S3 (aws-sdk-go-v2), AWS SES v2,
 - **`NewCollectionService` takes 5 params**: `(collectionRepo, collectionPermissionRepo, collectionFileRepo, documentService, userRepo)` — userRepo for tenant validation in SetPermission
 - **`NewDocumentHandler` takes 2 params**: `(documentService, auditRepo)` — auditRepo used for direct read in `ListAudit`
 - **`NewDocumentService` takes 10 params**: `(docRepo, fileRepo, userRepo, permRepo, tagRepo, docParser, storage, validationEngine, auditRepo, summaryRepo)` — summaryRepo can be nil
-- **`router.Setup` takes 12 params**: last added is `reportH *handler.ReportHandler` (between statsH and corsOrigins)
+- **`router.Setup` takes 14 params**: `(authSvc, authH, fileH, tenantH, userH, healthH, collectionH, documentH, statsH, reportH, serviceAccountH, corsOrigins, userRepo, saSvc)`
 - **Summary upsert non-blocking**: Same pattern as audit — `upsertSummary`/`updateSummaryStatuses` log errors but never fail the parent operation. Nil summaryRepo is safe
 - **HSN report queries JSONB directly**: The `hsn-summary` report uses `jsonb_array_elements` on `documents.structured_data` rather than the summary table, since line items aren't denormalized
 - **ReportFilters is a pointer**: `*domain.ReportFilters` (120 bytes) — gocritic hugeParam lint requires pointer passing

@@ -185,6 +185,11 @@ func run() error {
 	reportRepo := postgres.NewReportRepo(db)
 	reportSvc := service.NewReportService(reportRepo)
 
+	// Initialize service account repositories and service
+	saRepo := postgres.NewServiceAccountRepo(db)
+	saPermRepo := postgres.NewServiceAccountPermissionRepo(db)
+	serviceAccountSvc := service.NewServiceAccountService(saRepo, saPermRepo, collectionRepo)
+
 	documentSvc := service.NewDocumentService(&service.DocumentServiceDeps{
 		DocRepo:     docRepo,
 		FileRepo:    fileRepo,
@@ -193,6 +198,7 @@ func run() error {
 		TagRepo:     documentTagRepo,
 		AuditRepo:   auditRepo,
 		SummaryRepo: summaryRepo,
+		SAPermRepo:  saPermRepo,
 		Parser:      documentParser,
 		MergeParser: mergeDocParser, // nil when single-parse mode
 		Storage:     s3Client,
@@ -269,9 +275,10 @@ func run() error {
 	documentH := handler.NewDocumentHandler(documentSvc, auditRepo)
 	statsH := handler.NewStatsHandler(statsSvc)
 	reportH := handler.NewReportHandler(reportSvc)
+	serviceAccountH := handler.NewServiceAccountHandler(serviceAccountSvc)
 
 	// Setup router
-	r := router.Setup(authSvc, authH, fileH, tenantH, userH, healthH, collectionH, documentH, statsH, reportH, cfg.CORS.AllowedOrigins, userRepo)
+	r := router.Setup(authSvc, authH, fileH, tenantH, userH, healthH, collectionH, documentH, statsH, reportH, serviceAccountH, cfg.CORS.AllowedOrigins, userRepo, serviceAccountSvc)
 
 	log.Printf("Server starting on %s", cfg.Server.Port)
 	if err := r.Run(cfg.Server.Port); err != nil {
