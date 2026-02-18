@@ -6,10 +6,12 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
+	"satvos/internal/middleware"
 	"satvos/internal/service"
 )
 
 // TenantHandler handles tenant management endpoints.
+// All operations are scoped to the caller's own tenant via JWT tenant_id.
 type TenantHandler struct {
 	tenantService service.TenantService
 }
@@ -19,81 +21,25 @@ func NewTenantHandler(tenantService service.TenantService) *TenantHandler {
 	return &TenantHandler{tenantService: tenantService}
 }
 
-// Create handles POST /api/v1/admin/tenants
-// @Summary Create a tenant
-// @Description Create a new tenant (admin only)
-// @Tags tenants
-// @Accept json
-// @Produce json
-// @Param request body CreateTenantRequest true "Tenant details"
-// @Success 201 {object} Response{data=domain.Tenant} "Tenant created"
-// @Failure 400 {object} ErrorResponseBody "Validation error"
-// @Failure 401 {object} ErrorResponseBody "Unauthorized"
-// @Failure 403 {object} ErrorResponseBody "Forbidden - admin only"
-// @Failure 409 {object} ErrorResponseBody "Slug already exists"
-// @Security BearerAuth
-// @Router /admin/tenants [post]
-func (h *TenantHandler) Create(c *gin.Context) {
-	var input service.CreateTenantInput
-	if err := c.ShouldBindJSON(&input); err != nil {
-		RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
-		return
-	}
-
-	tenant, err := h.tenantService.Create(c.Request.Context(), input)
-	if err != nil {
-		HandleError(c, err)
-		return
-	}
-
-	RespondCreated(c, tenant)
-}
-
-// List handles GET /api/v1/admin/tenants
-// @Summary List tenants
-// @Description List all tenants (admin only)
+// GetOwnTenant handles GET /api/v1/admin/tenant
+// @Summary Get own tenant
+// @Description Get the caller's own tenant details (admin only)
 // @Tags tenants
 // @Produce json
-// @Param offset query int false "Offset for pagination" default(0)
-// @Param limit query int false "Limit for pagination (max 100)" default(20)
-// @Success 200 {object} Response{data=[]domain.Tenant,meta=PagMeta} "List of tenants"
-// @Failure 401 {object} ErrorResponseBody "Unauthorized"
-// @Failure 403 {object} ErrorResponseBody "Forbidden - admin only"
-// @Security BearerAuth
-// @Router /admin/tenants [get]
-func (h *TenantHandler) List(c *gin.Context) {
-	offset, limit := parsePagination(c)
-
-	tenants, total, err := h.tenantService.List(c.Request.Context(), offset, limit)
-	if err != nil {
-		HandleError(c, err)
-		return
-	}
-
-	RespondPaginated(c, tenants, PagMeta{Total: total, Offset: offset, Limit: limit})
-}
-
-// GetByID handles GET /api/v1/admin/tenants/:id
-// @Summary Get tenant by ID
-// @Description Get tenant details (admin only)
-// @Tags tenants
-// @Produce json
-// @Param id path string true "Tenant ID (UUID)"
 // @Success 200 {object} Response{data=domain.Tenant} "Tenant details"
-// @Failure 400 {object} ErrorResponseBody "Invalid ID"
 // @Failure 401 {object} ErrorResponseBody "Unauthorized"
 // @Failure 403 {object} ErrorResponseBody "Forbidden - admin only"
 // @Failure 404 {object} ErrorResponseBody "Tenant not found"
 // @Security BearerAuth
-// @Router /admin/tenants/{id} [get]
-func (h *TenantHandler) GetByID(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
+// @Router /admin/tenant [get]
+func (h *TenantHandler) GetOwnTenant(c *gin.Context) {
+	tenantID, err := middleware.GetTenantID(c)
 	if err != nil {
-		RespondError(c, http.StatusBadRequest, "INVALID_ID", "invalid tenant ID")
+		RespondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "missing tenant context")
 		return
 	}
 
-	tenant, err := h.tenantService.GetByID(c.Request.Context(), id)
+	tenant, err := h.tenantService.GetByID(c.Request.Context(), tenantID)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -102,13 +48,12 @@ func (h *TenantHandler) GetByID(c *gin.Context) {
 	RespondOK(c, tenant)
 }
 
-// Update handles PUT /api/v1/admin/tenants/:id
-// @Summary Update a tenant
-// @Description Update tenant details (admin only)
+// UpdateOwnTenant handles PUT /api/v1/admin/tenant
+// @Summary Update own tenant
+// @Description Update the caller's own tenant details (admin only)
 // @Tags tenants
 // @Accept json
 // @Produce json
-// @Param id path string true "Tenant ID (UUID)"
 // @Param request body UpdateTenantRequest true "Fields to update"
 // @Success 200 {object} Response{data=domain.Tenant} "Tenant updated"
 // @Failure 400 {object} ErrorResponseBody "Validation error"
@@ -116,11 +61,11 @@ func (h *TenantHandler) GetByID(c *gin.Context) {
 // @Failure 403 {object} ErrorResponseBody "Forbidden - admin only"
 // @Failure 404 {object} ErrorResponseBody "Tenant not found"
 // @Security BearerAuth
-// @Router /admin/tenants/{id} [put]
-func (h *TenantHandler) Update(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
+// @Router /admin/tenant [put]
+func (h *TenantHandler) UpdateOwnTenant(c *gin.Context) {
+	tenantID, err := middleware.GetTenantID(c)
 	if err != nil {
-		RespondError(c, http.StatusBadRequest, "INVALID_ID", "invalid tenant ID")
+		RespondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "missing tenant context")
 		return
 	}
 
@@ -130,7 +75,97 @@ func (h *TenantHandler) Update(c *gin.Context) {
 		return
 	}
 
-	tenant, err := h.tenantService.Update(c.Request.Context(), id, input)
+	tenant, err := h.tenantService.Update(c.Request.Context(), tenantID, input)
+	if err != nil {
+		HandleError(c, err)
+		return
+	}
+
+	RespondOK(c, tenant)
+}
+
+// --- Legacy endpoints (scoped to own tenant) ---
+
+// Create handles POST /api/v1/admin/tenants
+// Disabled: tenant creation is a platform-level operation not available to tenant admins.
+func (h *TenantHandler) Create(c *gin.Context) {
+	RespondError(c, http.StatusForbidden, "FORBIDDEN", "tenant creation is not available")
+}
+
+// List handles GET /api/v1/admin/tenants
+// Returns only the caller's own tenant.
+func (h *TenantHandler) List(c *gin.Context) {
+	tenantID, err := middleware.GetTenantID(c)
+	if err != nil {
+		RespondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "missing tenant context")
+		return
+	}
+
+	tenant, err := h.tenantService.GetByID(c.Request.Context(), tenantID)
+	if err != nil {
+		HandleError(c, err)
+		return
+	}
+
+	RespondPaginated(c, []interface{}{tenant}, PagMeta{Total: 1, Offset: 0, Limit: 1})
+}
+
+// GetByID handles GET /api/v1/admin/tenants/:id
+// Only returns data if the requested ID matches the caller's own tenant.
+func (h *TenantHandler) GetByID(c *gin.Context) {
+	tenantID, err := middleware.GetTenantID(c)
+	if err != nil {
+		RespondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "missing tenant context")
+		return
+	}
+
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		RespondError(c, http.StatusBadRequest, "INVALID_ID", "invalid tenant ID")
+		return
+	}
+
+	if id != tenantID {
+		RespondError(c, http.StatusForbidden, "FORBIDDEN", "you can only view your own tenant")
+		return
+	}
+
+	tenant, err := h.tenantService.GetByID(c.Request.Context(), tenantID)
+	if err != nil {
+		HandleError(c, err)
+		return
+	}
+
+	RespondOK(c, tenant)
+}
+
+// Update handles PUT /api/v1/admin/tenants/:id
+// Only allows update if the requested ID matches the caller's own tenant.
+func (h *TenantHandler) Update(c *gin.Context) {
+	tenantID, err := middleware.GetTenantID(c)
+	if err != nil {
+		RespondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "missing tenant context")
+		return
+	}
+
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		RespondError(c, http.StatusBadRequest, "INVALID_ID", "invalid tenant ID")
+		return
+	}
+
+	if id != tenantID {
+		RespondError(c, http.StatusForbidden, "FORBIDDEN", "you can only update your own tenant")
+		return
+	}
+
+	var input service.UpdateTenantInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
+
+	tenant, err := h.tenantService.Update(c.Request.Context(), tenantID, input)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -140,29 +175,7 @@ func (h *TenantHandler) Update(c *gin.Context) {
 }
 
 // Delete handles DELETE /api/v1/admin/tenants/:id
-// @Summary Delete a tenant
-// @Description Delete a tenant (admin only)
-// @Tags tenants
-// @Produce json
-// @Param id path string true "Tenant ID (UUID)"
-// @Success 200 {object} Response{data=MessageResponse} "Tenant deleted"
-// @Failure 400 {object} ErrorResponseBody "Invalid ID"
-// @Failure 401 {object} ErrorResponseBody "Unauthorized"
-// @Failure 403 {object} ErrorResponseBody "Forbidden - admin only"
-// @Failure 404 {object} ErrorResponseBody "Tenant not found"
-// @Security BearerAuth
-// @Router /admin/tenants/{id} [delete]
+// Disabled: tenant deletion is a platform-level operation not available to tenant admins.
 func (h *TenantHandler) Delete(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		RespondError(c, http.StatusBadRequest, "INVALID_ID", "invalid tenant ID")
-		return
-	}
-
-	if err := h.tenantService.Delete(c.Request.Context(), id); err != nil {
-		HandleError(c, err)
-		return
-	}
-
-	RespondOK(c, gin.H{"message": "tenant deleted"})
+	RespondError(c, http.StatusForbidden, "FORBIDDEN", "tenant deletion is not available")
 }
