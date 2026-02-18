@@ -16,9 +16,56 @@ All endpoints require `Authorization: Bearer <access_token>`. Pagination uses `?
 
 ---
 
-## 1. Tenant Management
+## 0. Admin Scoping Model — IMPORTANT
+
+The backend has a **single `admin` role** — there is no separate "super admin" or "platform admin" concept. However, admin operations fall into two distinct scoping levels:
+
+### Platform-level (cross-tenant) — Tenant Management
+
+The **tenant CRUD endpoints** (`/api/v1/admin/tenants/*`) are **not scoped to any tenant**. They operate across the entire platform:
+- `GET /admin/tenants` returns **ALL tenants** in the system, not just the caller's
+- `POST/PUT/DELETE /admin/tenants/:id` can create/modify/delete **any tenant**
+- The handler does NOT read `tenant_id` from the JWT — it's truly global
+
+This means any user with the `admin` role in **any** tenant can manage **all** tenants. This is by design — these are platform-level operations.
+
+### Tenant-level (scoped) — Everything Else
+
+All other admin operations are **scoped to the admin's own tenant** via the `tenant_id` in their JWT:
+- **User management** (`/api/v1/users/*`) — Admin only sees and manages users in their own tenant
+- **Service accounts** (`/api/v1/service-accounts/*`) — Scoped to the admin's tenant
+- **Collection permissions** (`/api/v1/collections/:id/permissions/*`) — Collections belong to a tenant
+- **Stats** (`/api/v1/stats`) — Returns stats for the admin's own tenant
+- **Delete file/document** — Scoped to the admin's tenant
+
+### Frontend Implications
+
+Since the backend treats all admins the same, the frontend should present **both levels** on the admin pages but make the distinction clear:
+
+1. **Tenant Management section** — Label it as "Platform Administration" or similar. Show a subtle info banner: "These settings affect the entire platform, not just your organization." This signals that the admin is operating outside their tenant boundary.
+
+2. **User / Service Account / Permissions sections** — Label as "Organization Administration" or "Tenant Settings." These naturally scope to the admin's own tenant — the backend enforces it.
+
+3. **Current tenant indicator** — In the admin sidebar or header, show which tenant the admin belongs to (from JWT `tenant_id`). For tenant-scoped pages, show "Managing: <tenant_name>". For the tenant list page, show "Platform-wide".
+
+The JWT claims contain:
+```typescript
+interface JWTClaims {
+  tenant_id: string;   // The admin's own tenant
+  user_id: string;
+  email: string;
+  role: "admin";       // Will always be "admin" on these pages
+}
+```
+
+---
+
+## 1. Tenant Management (Platform-Level)
 
 **Route**: `/admin/tenants`
+**Scope**: Cross-tenant — operates on ALL tenants in the platform
+
+Show a banner at the top: "Platform Administration — changes here affect all tenants."
 
 Admins manage the platform's tenant organizations. Each tenant is an isolated workspace with its own users, collections, and documents.
 
@@ -83,11 +130,12 @@ interface Tenant {
 
 ---
 
-## 2. User Management
+## 2. User Management (Tenant-Level)
 
 **Route**: `/admin/users`
+**Scope**: Own tenant only — backend filters by `tenant_id` from the admin's JWT
 
-Admins manage users within their own tenant. Users are created by admins (except free-tier who self-register).
+Admins manage users within their own tenant. The API automatically scopes all queries to the admin's tenant — there is no way to see or manage users from other tenants through these endpoints. Users are created by admins (except free-tier who self-register).
 
 ### 2.1 User List Page
 
@@ -192,11 +240,12 @@ Display this in a help tooltip or info panel so the admin understands what each 
 
 ---
 
-## 3. Collection Permission Management
+## 3. Collection Permission Management (Tenant-Level)
 
 **Route**: `/admin/permissions` or accessible from collection detail pages
+**Scope**: Own tenant only — collections belong to the admin's tenant
 
-This is how admins control who can access which collections. Admins have implicit owner access to all collections, but viewer/free users need explicit grants.
+This is how admins control who can access which collections within their tenant. Admins have implicit owner access to all collections in their tenant, but viewer/free users need explicit grants.
 
 ### 3.1 View Collection Permissions
 
@@ -251,11 +300,12 @@ This helps admins answer: "Who has access to what?"
 
 ---
 
-## 4. Service Account Management
+## 4. Service Account Management (Tenant-Level)
 
 **Route**: `/admin/service-accounts`
+**Scope**: Own tenant only — backend filters by `tenant_id` from the admin's JWT
 
-Service accounts are non-human API identities for programmatic access (ERP integrations, automation, batch processing). They authenticate via API keys, not JWT.
+Service accounts are non-human API identities for programmatic access (ERP integrations, automation, batch processing). They authenticate via API keys, not JWT. Each service account belongs to a single tenant.
 
 ### 4.1 Service Account List
 
@@ -386,32 +436,50 @@ Display these as an info box on the service accounts page so admins understand t
 
 **Route**: `/admin` (admin landing page)
 
-Provide an at-a-glance admin summary. Use `GET /api/v1/stats` for document/collection stats, and combine with user/SA list counts.
+Provide an at-a-glance admin summary split into two sections.
+
+### 5.1 Platform Section
+
+**API**: `GET /api/v1/admin/tenants?limit=1` (read `meta.total`)
 
 **Cards**:
-- Total Users (link to user list) — pull from `GET /api/v1/users?limit=1` and read `meta.total`
-- Total Collections (link to collection list)
-- Total Service Accounts (link to SA list) — pull from `GET /api/v1/service-accounts?limit=1` and read `meta.total`
+- Total Tenants (link to tenant list) — count from tenants list meta
+- Highlight the admin's own tenant with a "Your tenant" label
+
+### 5.2 Organization Section (Tenant-Scoped)
+
+**APIs**: `GET /api/v1/stats`, `GET /api/v1/users?limit=1`, `GET /api/v1/service-accounts?limit=1`
+
+Show the current tenant name as section header.
+
+**Cards**:
+- Total Users (link to user list) — from users list `meta.total`
+- Total Collections — from `stats.total_collections`
+- Total Service Accounts (link to SA list) — from service accounts list `meta.total`
 - Documents with Parsing Failures (`stats.parsing_failed`) — link to documents filtered by failed
 - Documents Pending Review (`stats.review_pending`) — link to documents
 - Validation Issues (`stats.validation_invalid + stats.validation_warning`)
-
-**Recent Activity** (optional enhancement): If you want to show recent admin actions, there's no dedicated admin audit API, but you could show the latest created users or service accounts.
 
 ---
 
 ## 6. Navigation
 
-Add an "Admin" section to the existing sidebar, **visible only when `user.role === "admin"`**:
+Add an "Admin" section to the existing sidebar, **visible only when `user.role === "admin"`**. Group items by scope so the admin understands what's platform-wide vs tenant-scoped:
 
 ```
 Admin
-├── Overview          → /admin
-├── Tenants           → /admin/tenants
-├── Users             → /admin/users
-├── Service Accounts  → /admin/service-accounts
-└── Permissions       → /admin/permissions  (collection permission overview)
+├── Overview                → /admin
+│
+├── Platform                          (section header, no link)
+│   └── Tenants             → /admin/tenants
+│
+└── Organization                      (section header, shows current tenant name)
+    ├── Users               → /admin/users
+    ├── Service Accounts    → /admin/service-accounts
+    └── Permissions         → /admin/permissions
 ```
+
+The "Organization" section header should display the current tenant name (decode from JWT or fetch from `/api/v1/admin/tenants/:id` using the `tenant_id` from the token). This reinforces that these pages are scoped to the admin's own tenant.
 
 ---
 
@@ -460,36 +528,42 @@ Map these backend error codes to admin-friendly messages:
 
 All admin-only endpoints (require `admin` role):
 
+### Platform-Level (cross-tenant, no tenant scoping)
+
 | Method | Path | Description |
 |--------|------|-------------|
-| **Tenants** | | |
 | POST | `/api/v1/admin/tenants` | Create tenant |
-| GET | `/api/v1/admin/tenants` | List tenants |
-| GET | `/api/v1/admin/tenants/:id` | Get tenant |
-| PUT | `/api/v1/admin/tenants/:id` | Update tenant |
-| DELETE | `/api/v1/admin/tenants/:id` | Delete tenant |
+| GET | `/api/v1/admin/tenants` | List ALL tenants |
+| GET | `/api/v1/admin/tenants/:id` | Get any tenant |
+| PUT | `/api/v1/admin/tenants/:id` | Update any tenant |
+| DELETE | `/api/v1/admin/tenants/:id` | Delete any tenant |
+
+### Tenant-Level (scoped to admin's own tenant via JWT `tenant_id`)
+
+| Method | Path | Description |
+|--------|------|-------------|
 | **Users** | | |
-| POST | `/api/v1/users` | Create user |
-| GET | `/api/v1/users` | List users |
-| GET | `/api/v1/users/:id` | Get user (also self-access) |
-| PUT | `/api/v1/users/:id` | Update user (also self for name/email) |
-| DELETE | `/api/v1/users/:id` | Delete user |
+| POST | `/api/v1/users` | Create user in own tenant |
+| GET | `/api/v1/users` | List users in own tenant |
+| GET | `/api/v1/users/:id` | Get user (own tenant, also self-access for non-admins) |
+| PUT | `/api/v1/users/:id` | Update user (own tenant, also self for name/email) |
+| DELETE | `/api/v1/users/:id` | Delete user from own tenant |
 | **Collection Permissions** | | |
-| GET | `/api/v1/collections/:id/permissions` | List permissions (owner access) |
-| POST | `/api/v1/collections/:id/permissions` | Grant permission (owner access) |
-| DELETE | `/api/v1/collections/:id/permissions/:userId` | Remove permission (owner access) |
+| GET | `/api/v1/collections/:id/permissions` | List permissions (owner access, own tenant) |
+| POST | `/api/v1/collections/:id/permissions` | Grant permission (owner access, own tenant) |
+| DELETE | `/api/v1/collections/:id/permissions/:userId` | Remove permission (owner access, own tenant) |
 | **Service Accounts** | | |
-| POST | `/api/v1/service-accounts` | Create service account |
-| GET | `/api/v1/service-accounts` | List service accounts |
-| GET | `/api/v1/service-accounts/:id` | Get service account |
-| POST | `/api/v1/service-accounts/:id/rotate-key` | Rotate API key |
-| POST | `/api/v1/service-accounts/:id/revoke` | Revoke service account |
-| DELETE | `/api/v1/service-accounts/:id` | Delete service account |
-| POST | `/api/v1/service-accounts/:id/permissions` | Grant collection access |
-| GET | `/api/v1/service-accounts/:id/permissions` | List collection access |
-| DELETE | `/api/v1/service-accounts/:id/permissions/:collectionId` | Remove collection access |
+| POST | `/api/v1/service-accounts` | Create SA in own tenant |
+| GET | `/api/v1/service-accounts` | List SAs in own tenant |
+| GET | `/api/v1/service-accounts/:id` | Get SA (own tenant) |
+| POST | `/api/v1/service-accounts/:id/rotate-key` | Rotate API key (own tenant) |
+| POST | `/api/v1/service-accounts/:id/revoke` | Revoke SA (own tenant) |
+| DELETE | `/api/v1/service-accounts/:id` | Delete SA (own tenant) |
+| POST | `/api/v1/service-accounts/:id/permissions` | Grant SA collection access (own tenant) |
+| GET | `/api/v1/service-accounts/:id/permissions` | List SA collection access (own tenant) |
+| DELETE | `/api/v1/service-accounts/:id/permissions/:collectionId` | Remove SA collection access (own tenant) |
 | **Supporting** | | |
-| GET | `/api/v1/stats` | Tenant stats (for admin overview) |
-| GET | `/api/v1/collections` | List collections (for pickers) |
-| DELETE | `/api/v1/files/:id` | Delete file (admin only) |
-| DELETE | `/api/v1/documents/:id` | Delete document (admin only) |
+| GET | `/api/v1/stats` | Stats for own tenant |
+| GET | `/api/v1/collections` | List collections in own tenant (for pickers) |
+| DELETE | `/api/v1/files/:id` | Delete file (own tenant) |
+| DELETE | `/api/v1/documents/:id` | Delete document (own tenant) |
