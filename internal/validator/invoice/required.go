@@ -2,6 +2,7 @@ package invoice
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"satvos/internal/domain"
@@ -34,6 +35,7 @@ type ValidationResult struct {
 	ExpectedValue string
 	ActualValue   string
 	Message       string
+	Metadata      json.RawMessage // optional structured data (e.g. duplicate match details)
 }
 
 func (v *requiredFieldValidator) Validate(_ context.Context, data *GSTInvoice) []ValidationResult {

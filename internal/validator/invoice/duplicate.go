@@ -2,6 +2,7 @@ package invoice
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -83,21 +84,38 @@ func duplicateInvoiceValidator(finder port.DuplicateInvoiceFinder) func(context.
 			}}
 		}
 
-		// Determine severity from match types.
+		// Determine severity from match types and build metadata.
 		hasStrong := false
 		names := make([]string, 0, len(matches))
+		type duplicateEntry struct {
+			DocumentID   string `json:"document_id"`
+			DocumentName string `json:"document_name"`
+			MatchType    string `json:"match_type"`
+			CreatedAt    string `json:"created_at"`
+		}
+		dupEntries := make([]duplicateEntry, 0, len(matches))
 		for idx := range matches {
 			m := &matches[idx]
 			if m.MatchType == "exact_irn" || m.MatchType == "strong" {
 				hasStrong = true
 			}
 			names = append(names, fmt.Sprintf("%q [%s] (uploaded %s)", m.DocumentName, m.MatchType, m.CreatedAt.Format("2006-01-02")))
+			dupEntries = append(dupEntries, duplicateEntry{
+				DocumentID:   m.DocumentID.String(),
+				DocumentName: m.DocumentName,
+				MatchType:    m.MatchType,
+				CreatedAt:    m.CreatedAt.Format("2006-01-02T15:04:05Z"),
+			})
 		}
 
 		severity := "warning"
 		if hasStrong {
 			severity = "error"
 		}
+
+		metadata, _ := json.Marshal(map[string]interface{}{
+			"duplicates": dupEntries,
+		})
 
 		return []ValidationResult{{
 			Passed:        false,
@@ -108,6 +126,7 @@ func duplicateInvoiceValidator(finder port.DuplicateInvoiceFinder) func(context.
 				"Logical: Duplicate Invoice Detection: invoice %s from seller %s already exists in: %s",
 				invoiceNum, gstin, strings.Join(names, ", "),
 			),
+			Metadata: metadata,
 		}}
 	}
 }

@@ -2,6 +2,7 @@ package invoice_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -77,13 +78,15 @@ func TestDuplicateValidator_NoDuplicates(t *testing.T) {
 	require.Len(t, results, 1)
 	assert.True(t, results[0].Passed)
 	assert.Contains(t, results[0].Message, "no duplicate")
+	assert.Nil(t, results[0].Metadata)
 }
 
 func TestDuplicateValidator_ExactIRNMatch(t *testing.T) {
+	docID := uuid.New()
 	finder := &mockDuplicateFinder{
 		matches: []port.DuplicateMatch{
 			{
-				DocumentID:   uuid.New(),
+				DocumentID:   docID,
 				DocumentName: "Invoice-IRN.pdf",
 				MatchType:    "exact_irn",
 				CreatedAt:    time.Date(2025, 3, 10, 0, 0, 0, 0, time.UTC),
@@ -99,6 +102,15 @@ func TestDuplicateValidator_ExactIRNMatch(t *testing.T) {
 	assert.False(t, results[0].Passed)
 	assert.Contains(t, results[0].ActualValue, "error")
 	assert.Contains(t, results[0].Message, "exact_irn")
+
+	// Verify metadata contains document ID for frontend linking
+	require.NotNil(t, results[0].Metadata)
+	var meta map[string][]map[string]string
+	require.NoError(t, json.Unmarshal(results[0].Metadata, &meta))
+	require.Len(t, meta["duplicates"], 1)
+	assert.Equal(t, docID.String(), meta["duplicates"][0]["document_id"])
+	assert.Equal(t, "Invoice-IRN.pdf", meta["duplicates"][0]["document_name"])
+	assert.Equal(t, "exact_irn", meta["duplicates"][0]["match_type"])
 }
 
 func TestDuplicateValidator_StrongMatch(t *testing.T) {
@@ -146,16 +158,18 @@ func TestDuplicateValidator_WeakMatchOnly(t *testing.T) {
 }
 
 func TestDuplicateValidator_MixedTiers_EscalatesToError(t *testing.T) {
+	strongDocID := uuid.New()
+	weakDocID := uuid.New()
 	finder := &mockDuplicateFinder{
 		matches: []port.DuplicateMatch{
 			{
-				DocumentID:   uuid.New(),
+				DocumentID:   strongDocID,
 				DocumentName: "Invoice-Strong.pdf",
 				MatchType:    "strong",
 				CreatedAt:    time.Date(2025, 2, 15, 0, 0, 0, 0, time.UTC),
 			},
 			{
-				DocumentID:   uuid.New(),
+				DocumentID:   weakDocID,
 				DocumentName: "Invoice-Weak.pdf",
 				MatchType:    "weak",
 				CreatedAt:    time.Date(2025, 1, 10, 0, 0, 0, 0, time.UTC),
@@ -170,6 +184,16 @@ func TestDuplicateValidator_MixedTiers_EscalatesToError(t *testing.T) {
 	require.Len(t, results, 1)
 	assert.False(t, results[0].Passed)
 	assert.Equal(t, "2 duplicate(s) found [error]", results[0].ActualValue)
+
+	// Verify metadata contains both document IDs
+	require.NotNil(t, results[0].Metadata)
+	var meta map[string][]map[string]string
+	require.NoError(t, json.Unmarshal(results[0].Metadata, &meta))
+	require.Len(t, meta["duplicates"], 2)
+	assert.Equal(t, strongDocID.String(), meta["duplicates"][0]["document_id"])
+	assert.Equal(t, "strong", meta["duplicates"][0]["match_type"])
+	assert.Equal(t, weakDocID.String(), meta["duplicates"][1]["document_id"])
+	assert.Equal(t, "weak", meta["duplicates"][1]["match_type"])
 }
 
 func TestDuplicateValidator_PassesFYToFinder(t *testing.T) {
