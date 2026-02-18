@@ -53,9 +53,12 @@ func (m *MockServiceAccountRepo) Revoke(ctx context.Context, tenantID, saID uuid
 	return args.Error(0)
 }
 
-func (m *MockServiceAccountRepo) RotateKey(ctx context.Context, tenantID, saID uuid.UUID, newPrefix, newHash string) error {
+func (m *MockServiceAccountRepo) RotateKey(ctx context.Context, tenantID, saID uuid.UUID, newPrefix, newHash string) (*domain.ServiceAccount, error) {
 	args := m.Called(ctx, tenantID, saID, newPrefix, newHash)
-	return args.Error(0)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.ServiceAccount), args.Error(1)
 }
 
 func (m *MockServiceAccountRepo) Delete(ctx context.Context, tenantID, saID uuid.UUID) error {

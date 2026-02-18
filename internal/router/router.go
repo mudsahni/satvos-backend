@@ -149,9 +149,12 @@ func Setup(
 	sa.GET("/:id/permissions", serviceAccountH.ListPermissions)
 	sa.DELETE("/:id/permissions/:collectionId", serviceAccountH.RemovePermission)
 
-	// Admin routes - tenant management (child of protected, no separate auth needed)
+	// Admin routes - tenant management (scoped to own tenant)
 	admin := protected.Group("/admin")
 	admin.Use(middleware.RequireRole(domain.RoleAdmin))
+	admin.GET("/tenant", tenantH.GetOwnTenant)
+	admin.PUT("/tenant", tenantH.UpdateOwnTenant)
+	// Legacy plural routes (kept for backward compat, scoped to own tenant)
 	admin.POST("/tenants", tenantH.Create)
 	admin.GET("/tenants", tenantH.List)
 	admin.GET("/tenants/:id", tenantH.GetByID)

@@ -131,13 +131,8 @@ func (s *serviceAccountService) RotateAPIKey(ctx context.Context, tenantID, saID
 		return nil, fmt.Errorf("generating API key: %w", err)
 	}
 
-	// Atomic update — only succeeds if the SA exists, belongs to tenant, and is active
-	if err := s.saRepo.RotateKey(ctx, tenantID, saID, prefix, keyHash); err != nil {
-		return nil, err
-	}
-
-	// Re-fetch to return updated state
-	sa, err := s.saRepo.GetByID(ctx, tenantID, saID)
+	// Atomic update + fetch via RETURNING — only succeeds if the SA exists, belongs to tenant, and is active
+	sa, err := s.saRepo.RotateKey(ctx, tenantID, saID, prefix, keyHash)
 	if err != nil {
 		return nil, err
 	}
@@ -149,11 +144,19 @@ func (s *serviceAccountService) RotateAPIKey(ctx context.Context, tenantID, saID
 }
 
 func (s *serviceAccountService) Revoke(ctx context.Context, tenantID, saID uuid.UUID) error {
-	return s.saRepo.Revoke(ctx, tenantID, saID)
+	err := s.saRepo.Revoke(ctx, tenantID, saID)
+	if err == nil {
+		s.lastUsedCache.Delete(saID)
+	}
+	return err
 }
 
 func (s *serviceAccountService) Delete(ctx context.Context, tenantID, saID uuid.UUID) error {
-	return s.saRepo.Delete(ctx, tenantID, saID)
+	err := s.saRepo.Delete(ctx, tenantID, saID)
+	if err == nil {
+		s.lastUsedCache.Delete(saID)
+	}
+	return err
 }
 
 func (s *serviceAccountService) SetPermission(ctx context.Context, input *SASetPermissionInput) error {
@@ -165,7 +168,7 @@ func (s *serviceAccountService) SetPermission(ctx context.Context, input *SASetP
 	// Verify the collection belongs to the same tenant
 	if s.collectionRepo != nil {
 		if _, err := s.collectionRepo.GetByID(ctx, input.TenantID, input.CollectionID); err != nil {
-			return fmt.Errorf("collection not found in tenant: %w", domain.ErrCollectionNotFound)
+			return err
 		}
 	}
 
@@ -184,14 +187,14 @@ func (s *serviceAccountService) ListPermissions(ctx context.Context, tenantID, s
 	if _, err := s.saRepo.GetByID(ctx, tenantID, saID); err != nil {
 		return nil, err
 	}
-	return s.permRepo.ListByAccount(ctx, saID)
+	return s.permRepo.ListByAccount(ctx, tenantID, saID)
 }
 
 func (s *serviceAccountService) RemovePermission(ctx context.Context, tenantID, saID, collectionID uuid.UUID) error {
 	if _, err := s.saRepo.GetByID(ctx, tenantID, saID); err != nil {
 		return err
 	}
-	return s.permRepo.Delete(ctx, saID, collectionID)
+	return s.permRepo.Delete(ctx, tenantID, saID, collectionID)
 }
 
 func (s *serviceAccountService) Authenticate(ctx context.Context, rawKey string) (*domain.ServiceAccount, error) {

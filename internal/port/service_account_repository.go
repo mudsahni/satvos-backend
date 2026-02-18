@@ -16,7 +16,7 @@ type ServiceAccountRepository interface {
 	ListByTenant(ctx context.Context, tenantID uuid.UUID, offset, limit int) ([]domain.ServiceAccount, int, error)
 	Update(ctx context.Context, sa *domain.ServiceAccount) error
 	Revoke(ctx context.Context, tenantID, saID uuid.UUID) error
-	RotateKey(ctx context.Context, tenantID, saID uuid.UUID, newPrefix, newHash string) error
+	RotateKey(ctx context.Context, tenantID, saID uuid.UUID, newPrefix, newHash string) (*domain.ServiceAccount, error)
 	Delete(ctx context.Context, tenantID, saID uuid.UUID) error
 	UpdateLastUsed(ctx context.Context, saID uuid.UUID) error
 }
@@ -25,6 +25,6 @@ type ServiceAccountRepository interface {
 type ServiceAccountPermissionRepository interface {
 	Upsert(ctx context.Context, perm *domain.ServiceAccountPermission) error
 	GetByAccountAndCollection(ctx context.Context, saID, collectionID uuid.UUID) (*domain.ServiceAccountPermission, error)
-	ListByAccount(ctx context.Context, saID uuid.UUID) ([]domain.ServiceAccountPermission, error)
-	Delete(ctx context.Context, saID, collectionID uuid.UUID) error
+	ListByAccount(ctx context.Context, tenantID, saID uuid.UUID) ([]domain.ServiceAccountPermission, error)
+	Delete(ctx context.Context, tenantID, saID, collectionID uuid.UUID) error
 }

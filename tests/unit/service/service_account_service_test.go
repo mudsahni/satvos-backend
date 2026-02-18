@@ -146,6 +146,31 @@ func TestServiceAccountService_Authenticate(t *testing.T) {
 		assert.ErrorIs(t, err, domain.ErrAPIKeyRevoked)
 		saRepo.AssertExpectations(t)
 	})
+
+	t.Run("revoked_key", func(t *testing.T) {
+		saRepo, _, _, svc := setupServiceAccountService()
+
+		// Create to get real key
+		saRepo.On("Create", mock.Anything, mock.AnythingOfType("*domain.ServiceAccount")).
+			Run(func(args mock.Arguments) {
+				sa := args.Get(1).(*domain.ServiceAccount)
+				sa.IsActive = false // revoked
+			}).Return(nil)
+
+		output, err := svc.Create(context.Background(), &service.CreateServiceAccountInput{
+			TenantID:  uuid.New(),
+			Name:      "revoked-sa",
+			CreatedBy: uuid.New(),
+		})
+		require.NoError(t, err)
+
+		saRepo.On("GetByAPIKeyPrefix", mock.Anything, mock.AnythingOfType("string")).
+			Return([]domain.ServiceAccount{*output.ServiceAccount}, nil)
+
+		_, err = svc.Authenticate(context.Background(), output.APIKey)
+		assert.ErrorIs(t, err, domain.ErrAPIKeyRevoked)
+		saRepo.AssertExpectations(t)
+	})
 }
 
 func TestServiceAccountService_RotateAPIKey(t *testing.T) {
@@ -155,13 +180,13 @@ func TestServiceAccountService_RotateAPIKey(t *testing.T) {
 		tenantID := uuid.New()
 		saID := uuid.New()
 
-		saRepo.On("RotateKey", mock.Anything, tenantID, saID, mock.AnythingOfType("string"), mock.AnythingOfType("string")).Return(nil)
-		saRepo.On("GetByID", mock.Anything, tenantID, saID).Return(&domain.ServiceAccount{
-			ID:       saID,
-			TenantID: tenantID,
-			Name:     "test-sa",
-			IsActive: true,
-		}, nil)
+		saRepo.On("RotateKey", mock.Anything, tenantID, saID, mock.AnythingOfType("string"), mock.AnythingOfType("string")).
+			Return(&domain.ServiceAccount{
+				ID:       saID,
+				TenantID: tenantID,
+				Name:     "test-sa",
+				IsActive: true,
+			}, nil)
 
 		output, err := svc.RotateAPIKey(context.Background(), tenantID, saID)
 		require.NoError(t, err)
@@ -178,7 +203,7 @@ func TestServiceAccountService_RotateAPIKey(t *testing.T) {
 
 		// RotateKey returns not found (SA doesn't exist or is revoked)
 		saRepo.On("RotateKey", mock.Anything, tenantID, saID, mock.AnythingOfType("string"), mock.AnythingOfType("string")).
-			Return(domain.ErrServiceAccountNotFound)
+			Return(nil, domain.ErrServiceAccountNotFound)
 
 		_, err := svc.RotateAPIKey(context.Background(), tenantID, saID)
 		assert.ErrorIs(t, err, domain.ErrServiceAccountNotFound)
@@ -193,7 +218,7 @@ func TestServiceAccountService_RotateAPIKey(t *testing.T) {
 
 		// RotateKey checks is_active = TRUE in its WHERE clause, so revoked SA returns not found
 		saRepo.On("RotateKey", mock.Anything, tenantID, saID, mock.AnythingOfType("string"), mock.AnythingOfType("string")).
-			Return(domain.ErrServiceAccountNotFound)
+			Return(nil, domain.ErrServiceAccountNotFound)
 
 		_, err := svc.RotateAPIKey(context.Background(), tenantID, saID)
 		assert.ErrorIs(t, err, domain.ErrServiceAccountNotFound)

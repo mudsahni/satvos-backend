@@ -51,6 +51,10 @@ func (h *ServiceAccountHandler) Create(c *gin.Context) {
 			RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "expires_at must be a valid RFC3339 timestamp")
 			return
 		}
+		if !t.After(time.Now()) {
+			RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "expires_at must be in the future")
+			return
+		}
 		input.ExpiresAt = &t
 	}
 

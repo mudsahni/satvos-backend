@@ -144,13 +144,13 @@ func (s *fileService) GetByID(ctx context.Context, tenantID, fileID uuid.UUID) (
 	return s.fileRepo.GetByID(ctx, tenantID, fileID)
 }
 
-// GetByIDForUser returns a file if the user has access. Free-tier users can only access their own files.
+// GetByIDForUser returns a file if the user has access. Free-tier and service account users can only access their own files.
 func (s *fileService) GetByIDForUser(ctx context.Context, tenantID, fileID, userID uuid.UUID, role domain.UserRole) (*domain.FileMeta, error) {
 	meta, err := s.fileRepo.GetByID(ctx, tenantID, fileID)
 	if err != nil {
 		return nil, err
 	}
-	if role == domain.RoleFree && meta.UploadedBy != userID {
+	if (role == domain.RoleFree || role == domain.RoleService) && meta.UploadedBy != userID {
 		return nil, domain.ErrNotFound
 	}
 	return meta, nil
