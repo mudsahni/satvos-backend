@@ -215,33 +215,35 @@ func (s *serviceAccountService) Authenticate(ctx context.Context, rawKey string)
 	keyHash := hashAPIKey(rawKey)
 
 	for i := range candidates {
-		if subtle.ConstantTimeCompare([]byte(candidates[i].APIKeyHash), []byte(keyHash)) == 1 {
-			sa := &candidates[i]
-
-			// Defense-in-depth: verify active state in code (SQL already filters is_active=TRUE)
-			if !sa.IsActive {
-				return nil, domain.ErrAPIKeyRevoked
-			}
-
-			// Check expiry
-			if sa.ExpiresAt != nil && sa.ExpiresAt.Before(time.Now()) {
-				return nil, domain.ErrAPIKeyRevoked
-			}
-
-			// Update last used (non-blocking, debounced to 60s per SA)
-			now := time.Now()
-			if prev, loaded := s.lastUsedCache.Load(sa.ID); !loaded ||
-				now.Sub(prev.(time.Time)) > 60*time.Second {
-				s.lastUsedCache.Store(sa.ID, now)
-				go func(id uuid.UUID) {
-					if updateErr := s.saRepo.UpdateLastUsed(context.Background(), id); updateErr != nil {
-						log.Printf("WARNING: failed to update service account last_used_at: %v", updateErr)
-					}
-				}(sa.ID)
-			}
-
-			return sa, nil
+		if subtle.ConstantTimeCompare([]byte(candidates[i].APIKeyHash), []byte(keyHash)) != 1 {
+			continue
 		}
+
+		sa := &candidates[i]
+
+		// Defense-in-depth: verify active state in code (SQL already filters is_active=TRUE)
+		if !sa.IsActive {
+			return nil, domain.ErrAPIKeyRevoked
+		}
+
+		// Check expiry
+		if sa.ExpiresAt != nil && sa.ExpiresAt.Before(time.Now()) {
+			return nil, domain.ErrAPIKeyRevoked
+		}
+
+		// Update last used (non-blocking, debounced to 60s per SA)
+		now := time.Now()
+		if prev, loaded := s.lastUsedCache.Load(sa.ID); !loaded ||
+			now.Sub(prev.(time.Time)) > 60*time.Second {
+			s.lastUsedCache.Store(sa.ID, now)
+			go func(id uuid.UUID) {
+				if updateErr := s.saRepo.UpdateLastUsed(context.Background(), id); updateErr != nil {
+					log.Printf("WARNING: failed to update service account last_used_at: %v", updateErr)
+				}
+			}(sa.ID)
+		}
+
+		return sa, nil
 	}
 
 	return nil, domain.ErrAPIKeyInvalid
