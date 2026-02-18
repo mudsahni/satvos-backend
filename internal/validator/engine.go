@@ -343,7 +343,8 @@ func (e *Engine) GetValidation(ctx context.Context, tenantID, docID uuid.UUID) (
 	// Build summary
 	var passed, errorCount, warningCount int
 	var reconPassed, reconErrors, reconWarnings int
-	for _, r := range results {
+	for idx := range results {
+		r := &results[idx]
 		if r.Passed {
 			passed++
 			if r.ReconciliationCritical {
@@ -368,7 +369,8 @@ func (e *Engine) GetValidation(ctx context.Context, tenantID, docID uuid.UUID) (
 
 	// Build result items for response
 	resultItems := make([]ValidationResultItem, 0, len(results))
-	for _, r := range results {
+	for idx := range results {
+		r := &results[idx]
 		rule := rulesMap[r.RuleID.String()]
 		item := ValidationResultItem{
 			RuleName:               "",

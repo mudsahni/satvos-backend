@@ -26,7 +26,8 @@ func ComputeFieldStatuses(
 ) map[string]*FieldStatus {
 	// Group results by field path
 	fieldResults := make(map[string][]resultWithSeverity)
-	for _, r := range results {
+	for idx := range results {
+		r := &results[idx]
 		rule := rules[r.RuleID.String()]
 		if rule == nil {
 			continue
