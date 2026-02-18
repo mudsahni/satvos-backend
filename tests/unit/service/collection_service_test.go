@@ -124,6 +124,151 @@ func TestCollectionService_Create_PermissionUpsertError(t *testing.T) {
 	assert.Contains(t, err.Error(), "assigning owner permission")
 }
 
+func TestCollectionService_Create_OwnerEmailGrantsPermission(t *testing.T) {
+	svc, collRepo, permRepo, _, userRepo := setupCollectionService()
+
+	tenantID := uuid.New()
+	creatorID := uuid.New()
+	ownerUserID := uuid.New()
+	ownerEmail := "owner@example.com"
+
+	collRepo.On("Create", mock.Anything, mock.AnythingOfType("*domain.Collection")).Return(nil)
+	permRepo.On("Upsert", mock.Anything, mock.AnythingOfType("*domain.CollectionPermissionEntry")).Return(nil)
+	userRepo.On("GetByEmail", mock.Anything, tenantID, ownerEmail).
+		Return(&domain.User{ID: ownerUserID, TenantID: tenantID, Email: ownerEmail}, nil)
+
+	result, err := svc.Create(context.Background(), &service.CreateCollectionInput{
+		TenantID:    tenantID,
+		CreatedBy:   creatorID,
+		Role:        domain.RoleMember,
+		Name:        "Test Collection",
+		Description: "A test collection",
+		OwnerEmail:  ownerEmail,
+	})
+
+	assert.NoError(t, err)
+	assert.NotNil(t, result)
+
+	// Verify Upsert was called twice: once for creator, once for owner_email user
+	permRepo.AssertNumberOfCalls(t, "Upsert", 2)
+
+	// Verify the second upsert was for the email owner
+	secondCall := permRepo.Calls[1]
+	perm := secondCall.Arguments.Get(1).(*domain.CollectionPermissionEntry)
+	assert.Equal(t, ownerUserID, perm.UserID)
+	assert.Equal(t, domain.CollectionPermOwner, perm.Permission)
+	assert.Equal(t, creatorID, perm.GrantedBy)
+}
+
+func TestCollectionService_Create_OwnerEmailNotFound(t *testing.T) {
+	svc, collRepo, permRepo, _, userRepo := setupCollectionService()
+
+	tenantID := uuid.New()
+	creatorID := uuid.New()
+
+	collRepo.On("Create", mock.Anything, mock.AnythingOfType("*domain.Collection")).Return(nil)
+	permRepo.On("Upsert", mock.Anything, mock.AnythingOfType("*domain.CollectionPermissionEntry")).Return(nil)
+	userRepo.On("GetByEmail", mock.Anything, tenantID, "unknown@example.com").
+		Return(nil, domain.ErrNotFound)
+
+	result, err := svc.Create(context.Background(), &service.CreateCollectionInput{
+		TenantID:    tenantID,
+		CreatedBy:   creatorID,
+		Role:        domain.RoleMember,
+		Name:        "Test Collection",
+		OwnerEmail:  "unknown@example.com",
+	})
+
+	// Should succeed — owner_email lookup failure is non-blocking
+	assert.NoError(t, err)
+	assert.NotNil(t, result)
+
+	// Only one upsert (for the creator), not two
+	permRepo.AssertNumberOfCalls(t, "Upsert", 1)
+}
+
+func TestCollectionService_Create_OwnerEmailSameAsCreator(t *testing.T) {
+	svc, collRepo, permRepo, _, userRepo := setupCollectionService()
+
+	tenantID := uuid.New()
+	creatorID := uuid.New()
+	creatorEmail := "creator@example.com"
+
+	collRepo.On("Create", mock.Anything, mock.AnythingOfType("*domain.Collection")).Return(nil)
+	permRepo.On("Upsert", mock.Anything, mock.AnythingOfType("*domain.CollectionPermissionEntry")).Return(nil)
+	userRepo.On("GetByEmail", mock.Anything, tenantID, creatorEmail).
+		Return(&domain.User{ID: creatorID, TenantID: tenantID, Email: creatorEmail}, nil)
+
+	result, err := svc.Create(context.Background(), &service.CreateCollectionInput{
+		TenantID:    tenantID,
+		CreatedBy:   creatorID,
+		Role:        domain.RoleMember,
+		Name:        "Test Collection",
+		OwnerEmail:  creatorEmail,
+	})
+
+	// Should succeed — no duplicate upsert when owner_email resolves to creator
+	assert.NoError(t, err)
+	assert.NotNil(t, result)
+
+	// Only one upsert (for the creator); skip because same user
+	permRepo.AssertNumberOfCalls(t, "Upsert", 1)
+}
+
+func TestCollectionService_Create_OwnerEmailEmpty(t *testing.T) {
+	svc, collRepo, permRepo, _, _ := setupCollectionService()
+
+	tenantID := uuid.New()
+	creatorID := uuid.New()
+
+	collRepo.On("Create", mock.Anything, mock.AnythingOfType("*domain.Collection")).Return(nil)
+	permRepo.On("Upsert", mock.Anything, mock.AnythingOfType("*domain.CollectionPermissionEntry")).Return(nil)
+
+	result, err := svc.Create(context.Background(), &service.CreateCollectionInput{
+		TenantID:    tenantID,
+		CreatedBy:   creatorID,
+		Role:        domain.RoleMember,
+		Name:        "Test Collection",
+		OwnerEmail:  "",
+	})
+
+	// Empty owner_email is a no-op — existing behavior preserved
+	assert.NoError(t, err)
+	assert.NotNil(t, result)
+	permRepo.AssertNumberOfCalls(t, "Upsert", 1)
+}
+
+func TestCollectionService_Create_OwnerEmailPermUpsertFails(t *testing.T) {
+	svc, collRepo, permRepo, _, userRepo := setupCollectionService()
+
+	tenantID := uuid.New()
+	creatorID := uuid.New()
+	ownerUserID := uuid.New()
+	ownerEmail := "owner@example.com"
+
+	collRepo.On("Create", mock.Anything, mock.AnythingOfType("*domain.Collection")).Return(nil)
+	// First Upsert (creator) succeeds, second (email owner) fails
+	permRepo.On("Upsert", mock.Anything, mock.AnythingOfType("*domain.CollectionPermissionEntry")).
+		Return(nil).Once()
+	permRepo.On("Upsert", mock.Anything, mock.AnythingOfType("*domain.CollectionPermissionEntry")).
+		Return(errors.New("db connection lost")).Once()
+	userRepo.On("GetByEmail", mock.Anything, tenantID, ownerEmail).
+		Return(&domain.User{ID: ownerUserID, TenantID: tenantID, Email: ownerEmail}, nil)
+
+	result, err := svc.Create(context.Background(), &service.CreateCollectionInput{
+		TenantID:    tenantID,
+		CreatedBy:   creatorID,
+		Role:        domain.RoleMember,
+		Name:        "Test Collection",
+		OwnerEmail:  ownerEmail,
+	})
+
+	// Should still succeed — owner_email perm upsert failure is non-blocking
+	assert.NoError(t, err)
+	assert.NotNil(t, result)
+	permRepo.AssertNumberOfCalls(t, "Upsert", 2)
+}
+
 func TestCollectionService_Create_ViewerDenied(t *testing.T) {
 	svc, _, _, _, _ := setupCollectionService()
 

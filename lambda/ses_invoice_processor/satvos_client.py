@@ -94,15 +94,21 @@ class SatvosClient:
         )
         self._session.headers["Authorization"] = f"Bearer {self._token.access_token}"
 
-    def create_collection(self, name: str, description: str) -> str:
+    def create_collection(self, name: str, description: str, *, owner_email: str | None = None) -> str:
         """Create a collection and return its ID.
+
+        If owner_email is provided, the backend will look up the user by email
+        within the tenant and grant them owner permission on the collection.
 
         Raises SatvosAPIError on failure.
         """
         self._ensure_auth()
+        body: dict = {"name": name, "description": description}
+        if owner_email:
+            body["owner_email"] = owner_email
         resp = self._session.post(
             f"{self._base_url}/collections",
-            json={"name": name, "description": description},
+            json=body,
         )
         if resp.status_code not in (200, 201):
             raise SatvosAPIError(
@@ -175,7 +181,7 @@ class SatvosClient:
         else:
             description = f"Auto-imported from email for {company_name}"
 
-        collection_id = self.create_collection(collection_name, description)
+        collection_id = self.create_collection(collection_name, description, owner_email=sender_email)
         logger.info("Created collection %s: %s", collection_id, collection_name)
 
         result = ProcessingResult(
