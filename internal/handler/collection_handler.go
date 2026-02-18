@@ -48,6 +48,7 @@ func (h *CollectionHandler) Create(c *gin.Context) {
 	var req struct {
 		Name        string `json:"name" binding:"required"`
 		Description string `json:"description"`
+		OwnerEmail  string `json:"owner_email"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		RespondError(c, http.StatusBadRequest, "INVALID_REQUEST", "name is required")
@@ -60,6 +61,7 @@ func (h *CollectionHandler) Create(c *gin.Context) {
 		Role:        role,
 		Name:        req.Name,
 		Description: req.Description,
+		OwnerEmail:  req.OwnerEmail,
 	})
 	if err != nil {
 		HandleError(c, err)

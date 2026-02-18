@@ -151,6 +151,43 @@ class TestCreateCollection:
         assert coll_id == "coll-abc"
 
     @responses.activate
+    def test_success_with_owner_email(self):
+        _mock_login()
+        responses.add(
+            responses.POST,
+            f"{BASE_URL}/collections",
+            json={"success": True, "data": {"id": "coll-own"}},
+            status=201,
+        )
+
+        client = SatvosClient(BASE_URL)
+        client.authenticate("user@test.com", "password123")
+        coll_id = client.create_collection("Test", "desc", owner_email="owner@co.com")
+        assert coll_id == "coll-own"
+
+        # Verify owner_email was sent in the request body
+        body = json.loads(responses.calls[1].request.body)
+        assert body["owner_email"] == "owner@co.com"
+
+    @responses.activate
+    def test_no_owner_email_omits_field(self):
+        _mock_login()
+        responses.add(
+            responses.POST,
+            f"{BASE_URL}/collections",
+            json={"success": True, "data": {"id": "coll-no"}},
+            status=201,
+        )
+
+        client = SatvosClient(BASE_URL)
+        client.authenticate("user@test.com", "password123")
+        client.create_collection("Test", "desc")
+
+        # Verify owner_email is NOT in the request body when not provided
+        body = json.loads(responses.calls[1].request.body)
+        assert "owner_email" not in body
+
+    @responses.activate
     def test_failure(self):
         _mock_login()
         responses.add(
@@ -306,7 +343,7 @@ class TestProcessAttachments:
         assert result.documents_failed == []
 
     @responses.activate
-    def test_sender_email_in_collection_description(self):
+    def test_sender_email_in_collection_description_and_owner_email(self):
         _mock_login()
         responses.add(
             responses.POST,
@@ -336,10 +373,11 @@ class TestProcessAttachments:
         client.authenticate("user@test.com", "password123")
         client.process_attachments("Test Co", [_make_attachment()], sender_email="sender@test.com")
 
-        # Verify collection description includes sender
+        # Verify collection description includes sender and owner_email is passed
         create_coll_call = responses.calls[1]  # login=0, create_collection=1
         body = json.loads(create_coll_call.request.body)
         assert "sender@test.com" in body["description"]
+        assert body["owner_email"] == "sender@test.com"
 
     @responses.activate
     def test_no_sender_email_fallback(self):
@@ -372,10 +410,11 @@ class TestProcessAttachments:
         client.authenticate("user@test.com", "password123")
         client.process_attachments("Test Co", [_make_attachment()])
 
-        # Verify fallback description (no sender_email)
+        # Verify fallback description (no sender_email) and no owner_email
         create_coll_call = responses.calls[1]
         body = json.loads(create_coll_call.request.body)
         assert "Auto-imported from email for Test Co" in body["description"]
+        assert "owner_email" not in body
 
     @responses.activate
     def test_partial_upload_failure(self):
