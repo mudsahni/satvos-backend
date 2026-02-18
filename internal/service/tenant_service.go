@@ -60,6 +60,9 @@ func (s *tenantService) List(ctx context.Context, offset, limit int) ([]domain.T
 	return s.repo.List(ctx, offset, limit)
 }
 
+// Update updates a tenant by ID. Callers MUST ensure id is the caller's own tenant ID
+// (enforced at the handler layer via JWT tenant_id comparison). The handler also strips
+// IsActive before calling this method to prevent tenant admin self-lockout.
 func (s *tenantService) Update(ctx context.Context, id uuid.UUID, input UpdateTenantInput) (*domain.Tenant, error) {
 	tenant, err := s.repo.GetByID(ctx, id)
 	if err != nil {

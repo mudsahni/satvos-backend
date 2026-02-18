@@ -75,6 +75,9 @@ func (h *TenantHandler) UpdateOwnTenant(c *gin.Context) {
 		return
 	}
 
+	// Tenant admins cannot toggle their own tenant's active status (self-lockout prevention)
+	input.IsActive = nil
+
 	tenant, err := h.tenantService.Update(c.Request.Context(), tenantID, input)
 	if err != nil {
 		HandleError(c, err)
@@ -164,6 +167,9 @@ func (h *TenantHandler) Update(c *gin.Context) {
 		RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
 		return
 	}
+
+	// Tenant admins cannot toggle their own tenant's active status (self-lockout prevention)
+	input.IsActive = nil
 
 	tenant, err := h.tenantService.Update(c.Request.Context(), tenantID, input)
 	if err != nil {

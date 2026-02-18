@@ -159,7 +159,7 @@ interface User {
   current_period_start: string;
   email_verified: boolean;
   email_verified_at?: string;
-  auth_provider: "email" | "google" | "api_key";
+  auth_provider: "email" | "google";
   created_at: string;
   updated_at: string;
 }
@@ -259,7 +259,7 @@ Service accounts are non-human API identities for programmatic access (ERP integ
 |--------|------|-------|
 | Name | string | Account name |
 | Description | string | Purpose description |
-| Key Prefix | code | `sk_XXXXXXXX...` (first 8 chars for identification) |
+| Key Prefix | code | `XXXXXXXX` (first 8 hex chars of the key body, without `sk_` prefix) |
 | Status | badge | Active (green) / Revoked (red) |
 | Last Used | date | `last_used_at` — shows when the key was last used for an API call |
 | Expires | date | `expires_at` — null = never expires |
@@ -306,7 +306,7 @@ interface ServiceAccount {
   tenant_id: string;
   name: string;
   description: string;
-  api_key_prefix: string;   // "sk_XXXXXXXX" — first 8 chars
+  api_key_prefix: string;   // first 8 hex chars of the key body (e.g. "a1b2c3d4"), without "sk_" prefix
   is_active: boolean;
   created_by: string;       // UUID
   last_used_at?: string;

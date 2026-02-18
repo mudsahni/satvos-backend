@@ -15,6 +15,7 @@ import (
 	"satvos/internal/domain"
 	"satvos/internal/handler"
 	"satvos/internal/middleware"
+	"satvos/internal/service"
 	"satvos/mocks"
 )
 
@@ -139,6 +140,57 @@ func TestTenantHandler_UpdateOwnTenant_NoAuth(t *testing.T) {
 	h.UpdateOwnTenant(c)
 
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestTenantHandler_UpdateOwnTenant_BadRequest(t *testing.T) {
+	h, _ := newTenantHandler()
+
+	tenantID := uuid.New()
+	adminID := uuid.New()
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest(http.MethodPut, "/api/v1/admin/tenant", bytes.NewReader([]byte("not-json")))
+	c.Request.Header.Set("Content-Type", "application/json")
+	setTenantAuthContext(c, tenantID, adminID)
+
+	h.UpdateOwnTenant(c)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestTenantHandler_UpdateOwnTenant_StripsIsActive(t *testing.T) {
+	h, mockSvc := newTenantHandler()
+
+	tenantID := uuid.New()
+	adminID := uuid.New()
+	updated := &domain.Tenant{
+		ID:       tenantID,
+		Name:     "Acme Industries",
+		Slug:     "acme",
+		IsActive: true,
+	}
+
+	// Verify the service receives input with IsActive stripped (nil)
+	mockSvc.On("Update", mock.Anything, tenantID, mock.MatchedBy(func(input service.UpdateTenantInput) bool {
+		return input.IsActive == nil
+	})).Return(updated, nil)
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"name":      "Acme Industries",
+		"is_active": false, // This should be stripped by the handler
+	})
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest(http.MethodPut, "/api/v1/admin/tenant", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	setTenantAuthContext(c, tenantID, adminID)
+
+	h.UpdateOwnTenant(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	mockSvc.AssertExpectations(t)
 }
 
 // ==================== Create (disabled) ====================
