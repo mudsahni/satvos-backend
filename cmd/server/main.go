@@ -188,7 +188,7 @@ func run() error {
 	// Initialize service account repositories and service
 	saRepo := postgres.NewServiceAccountRepo(db)
 	saPermRepo := postgres.NewServiceAccountPermissionRepo(db)
-	serviceAccountSvc := service.NewServiceAccountService(saRepo, saPermRepo)
+	serviceAccountSvc := service.NewServiceAccountService(saRepo, saPermRepo, collectionRepo)
 
 	documentSvc := service.NewDocumentService(&service.DocumentServiceDeps{
 		DocRepo:     docRepo,

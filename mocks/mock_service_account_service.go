@@ -7,7 +7,6 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"satvos/internal/domain"
-	"satvos/internal/port"
 	"satvos/internal/service"
 )
 
@@ -63,12 +62,12 @@ func (m *MockServiceAccountService) SetPermission(ctx context.Context, input *se
 	return args.Error(0)
 }
 
-func (m *MockServiceAccountService) ListPermissions(ctx context.Context, tenantID, saID uuid.UUID) ([]port.ServiceAccountPermission, error) {
+func (m *MockServiceAccountService) ListPermissions(ctx context.Context, tenantID, saID uuid.UUID) ([]domain.ServiceAccountPermission, error) {
 	args := m.Called(ctx, tenantID, saID)
 	if args.Get(0) == nil {
 		return nil, args.Error(1)
 	}
-	return args.Get(0).([]port.ServiceAccountPermission), args.Error(1)
+	return args.Get(0).([]domain.ServiceAccountPermission), args.Error(1)
 }
 
 func (m *MockServiceAccountService) RemovePermission(ctx context.Context, tenantID, saID, collectionID uuid.UUID) error {

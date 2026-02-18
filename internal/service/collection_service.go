@@ -160,7 +160,11 @@ func (s *collectionService) List(ctx context.Context, tenantID, userID uuid.UUID
 	if role == domain.RoleAdmin || role == domain.RoleManager || role == domain.RoleMember {
 		return s.collectionRepo.ListByTenant(ctx, tenantID, offset, limit)
 	}
-	// Viewer only sees collections they have explicit permission for
+	// Service accounts see only collections they have explicit permission for (via service_account_permissions)
+	if role == domain.RoleService {
+		return s.collectionRepo.ListByServiceAccount(ctx, tenantID, userID, offset, limit)
+	}
+	// Viewer/free sees only collections they have explicit permission for (via collection_permissions)
 	return s.collectionRepo.ListByUser(ctx, tenantID, userID, offset, limit)
 }
 

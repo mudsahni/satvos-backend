@@ -62,8 +62,10 @@ func Setup(
 	protected := v1.Group("")
 	protected.Use(middleware.AuthMiddleware(authSvc, saSvc))
 
-	// Resend verification (authenticated, no email verification required)
-	protected.POST("/auth/resend-verification", authH.ResendVerification)
+	// Resend verification (authenticated, no email verification required, human users only)
+	protected.POST("/auth/resend-verification",
+		middleware.RequireRole(domain.RoleAdmin, domain.RoleManager, domain.RoleMember, domain.RoleViewer, domain.RoleFree),
+		authH.ResendVerification)
 
 	// File routes
 	files := protected.Group("/files")
@@ -147,9 +149,8 @@ func Setup(
 	sa.GET("/:id/permissions", serviceAccountH.ListPermissions)
 	sa.DELETE("/:id/permissions/:collectionId", serviceAccountH.RemovePermission)
 
-	// Admin routes - tenant management
-	admin := v1.Group("/admin")
-	admin.Use(middleware.AuthMiddleware(authSvc, saSvc))
+	// Admin routes - tenant management (child of protected, no separate auth needed)
+	admin := protected.Group("/admin")
 	admin.Use(middleware.RequireRole(domain.RoleAdmin))
 	admin.POST("/tenants", tenantH.Create)
 	admin.GET("/tenants", tenantH.List)

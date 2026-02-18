@@ -15,24 +15,16 @@ type ServiceAccountRepository interface {
 	GetByAPIKeyPrefix(ctx context.Context, prefix string) ([]domain.ServiceAccount, error)
 	ListByTenant(ctx context.Context, tenantID uuid.UUID, offset, limit int) ([]domain.ServiceAccount, int, error)
 	Update(ctx context.Context, sa *domain.ServiceAccount) error
+	Revoke(ctx context.Context, tenantID, saID uuid.UUID) error
+	RotateKey(ctx context.Context, tenantID, saID uuid.UUID, newPrefix, newHash string) error
 	Delete(ctx context.Context, tenantID, saID uuid.UUID) error
 	UpdateLastUsed(ctx context.Context, saID uuid.UUID) error
 }
 
-// ServiceAccountPermission represents a service account's permission on a collection.
-type ServiceAccountPermission struct {
-	ID               uuid.UUID                  `db:"id" json:"id"`
-	ServiceAccountID uuid.UUID                  `db:"service_account_id" json:"service_account_id"`
-	CollectionID     uuid.UUID                  `db:"collection_id" json:"collection_id"`
-	TenantID         uuid.UUID                  `db:"tenant_id" json:"tenant_id"`
-	Permission       domain.CollectionPermission `db:"permission" json:"permission"`
-	GrantedBy        uuid.UUID                  `db:"granted_by" json:"granted_by"`
-}
-
 // ServiceAccountPermissionRepository defines persistence operations for service account permissions.
 type ServiceAccountPermissionRepository interface {
-	Upsert(ctx context.Context, perm *ServiceAccountPermission) error
-	GetByAccountAndCollection(ctx context.Context, saID, collectionID uuid.UUID) (*ServiceAccountPermission, error)
-	ListByAccount(ctx context.Context, saID uuid.UUID) ([]ServiceAccountPermission, error)
+	Upsert(ctx context.Context, perm *domain.ServiceAccountPermission) error
+	GetByAccountAndCollection(ctx context.Context, saID, collectionID uuid.UUID) (*domain.ServiceAccountPermission, error)
+	ListByAccount(ctx context.Context, saID uuid.UUID) ([]domain.ServiceAccountPermission, error)
 	Delete(ctx context.Context, saID, collectionID uuid.UUID) error
 }

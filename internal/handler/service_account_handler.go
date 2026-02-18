@@ -8,7 +8,6 @@ import (
 	"github.com/google/uuid"
 
 	"satvos/internal/domain"
-	"satvos/internal/middleware"
 	"satvos/internal/service"
 )
 
@@ -24,20 +23,14 @@ func NewServiceAccountHandler(saSvc service.ServiceAccountService) *ServiceAccou
 
 // Create handles POST /api/v1/service-accounts
 func (h *ServiceAccountHandler) Create(c *gin.Context) {
-	tenantID, err := middleware.GetTenantID(c)
-	if err != nil {
-		RespondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "missing tenant context")
-		return
-	}
-	callerID, err := middleware.GetUserID(c)
-	if err != nil {
-		RespondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "missing user context")
+	tenantID, callerID, _, ok := extractAuthContext(c)
+	if !ok {
 		return
 	}
 
 	var req struct {
-		Name        string `json:"name" binding:"required"`
-		Description string `json:"description"`
+		Name        string  `json:"name" binding:"required"`
+		Description string  `json:"description"`
 		ExpiresAt   *string `json:"expires_at"` // RFC3339
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -53,7 +46,7 @@ func (h *ServiceAccountHandler) Create(c *gin.Context) {
 	}
 
 	if req.ExpiresAt != nil {
-		t, parseErr := parseTime(*req.ExpiresAt)
+		t, parseErr := time.Parse(time.RFC3339, *req.ExpiresAt)
 		if parseErr != nil {
 			RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "expires_at must be a valid RFC3339 timestamp")
 			return
@@ -72,9 +65,8 @@ func (h *ServiceAccountHandler) Create(c *gin.Context) {
 
 // List handles GET /api/v1/service-accounts
 func (h *ServiceAccountHandler) List(c *gin.Context) {
-	tenantID, err := middleware.GetTenantID(c)
-	if err != nil {
-		RespondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "missing tenant context")
+	tenantID, _, _, ok := extractAuthContext(c)
+	if !ok {
 		return
 	}
 
@@ -91,9 +83,8 @@ func (h *ServiceAccountHandler) List(c *gin.Context) {
 
 // GetByID handles GET /api/v1/service-accounts/:id
 func (h *ServiceAccountHandler) GetByID(c *gin.Context) {
-	tenantID, err := middleware.GetTenantID(c)
-	if err != nil {
-		RespondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "missing tenant context")
+	tenantID, _, _, ok := extractAuthContext(c)
+	if !ok {
 		return
 	}
 
@@ -114,9 +105,8 @@ func (h *ServiceAccountHandler) GetByID(c *gin.Context) {
 
 // RotateKey handles POST /api/v1/service-accounts/:id/rotate-key
 func (h *ServiceAccountHandler) RotateKey(c *gin.Context) {
-	tenantID, err := middleware.GetTenantID(c)
-	if err != nil {
-		RespondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "missing tenant context")
+	tenantID, _, _, ok := extractAuthContext(c)
+	if !ok {
 		return
 	}
 
@@ -137,9 +127,8 @@ func (h *ServiceAccountHandler) RotateKey(c *gin.Context) {
 
 // Revoke handles POST /api/v1/service-accounts/:id/revoke
 func (h *ServiceAccountHandler) Revoke(c *gin.Context) {
-	tenantID, err := middleware.GetTenantID(c)
-	if err != nil {
-		RespondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "missing tenant context")
+	tenantID, _, _, ok := extractAuthContext(c)
+	if !ok {
 		return
 	}
 
@@ -159,9 +148,8 @@ func (h *ServiceAccountHandler) Revoke(c *gin.Context) {
 
 // Delete handles DELETE /api/v1/service-accounts/:id
 func (h *ServiceAccountHandler) Delete(c *gin.Context) {
-	tenantID, err := middleware.GetTenantID(c)
-	if err != nil {
-		RespondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "missing tenant context")
+	tenantID, _, _, ok := extractAuthContext(c)
+	if !ok {
 		return
 	}
 
@@ -181,14 +169,8 @@ func (h *ServiceAccountHandler) Delete(c *gin.Context) {
 
 // SetPermission handles POST /api/v1/service-accounts/:id/permissions
 func (h *ServiceAccountHandler) SetPermission(c *gin.Context) {
-	tenantID, err := middleware.GetTenantID(c)
-	if err != nil {
-		RespondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "missing tenant context")
-		return
-	}
-	callerID, err := middleware.GetUserID(c)
-	if err != nil {
-		RespondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "missing user context")
+	tenantID, callerID, _, ok := extractAuthContext(c)
+	if !ok {
 		return
 	}
 
@@ -229,9 +211,8 @@ func (h *ServiceAccountHandler) SetPermission(c *gin.Context) {
 
 // ListPermissions handles GET /api/v1/service-accounts/:id/permissions
 func (h *ServiceAccountHandler) ListPermissions(c *gin.Context) {
-	tenantID, err := middleware.GetTenantID(c)
-	if err != nil {
-		RespondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "missing tenant context")
+	tenantID, _, _, ok := extractAuthContext(c)
+	if !ok {
 		return
 	}
 
@@ -252,9 +233,8 @@ func (h *ServiceAccountHandler) ListPermissions(c *gin.Context) {
 
 // RemovePermission handles DELETE /api/v1/service-accounts/:id/permissions/:collectionId
 func (h *ServiceAccountHandler) RemovePermission(c *gin.Context) {
-	tenantID, err := middleware.GetTenantID(c)
-	if err != nil {
-		RespondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "missing tenant context")
+	tenantID, _, _, ok := extractAuthContext(c)
+	if !ok {
 		return
 	}
 
@@ -276,9 +256,4 @@ func (h *ServiceAccountHandler) RemovePermission(c *gin.Context) {
 	}
 
 	RespondOK(c, gin.H{"message": "permission removed"})
-}
-
-// parseTime parses an RFC3339 timestamp string.
-func parseTime(s string) (time.Time, error) {
-	return time.Parse(time.RFC3339, s)
 }

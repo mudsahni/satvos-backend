@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -24,9 +25,9 @@ const (
 // CreateServiceAccountInput is the DTO for creating a service account.
 type CreateServiceAccountInput struct {
 	TenantID    uuid.UUID
-	Name        string  `json:"name" binding:"required"`
-	Description string  `json:"description"`
-	ExpiresAt   *time.Time `json:"expires_at"`
+	Name        string
+	Description string
+	ExpiresAt   *time.Time
 	CreatedBy   uuid.UUID
 }
 
@@ -62,7 +63,7 @@ type ServiceAccountService interface {
 
 	// Permission management
 	SetPermission(ctx context.Context, input *SASetPermissionInput) error
-	ListPermissions(ctx context.Context, tenantID, saID uuid.UUID) ([]port.ServiceAccountPermission, error)
+	ListPermissions(ctx context.Context, tenantID, saID uuid.UUID) ([]domain.ServiceAccountPermission, error)
 	RemovePermission(ctx context.Context, tenantID, saID, collectionID uuid.UUID) error
 
 	// Authentication
@@ -70,18 +71,22 @@ type ServiceAccountService interface {
 }
 
 type serviceAccountService struct {
-	saRepo   port.ServiceAccountRepository
-	permRepo port.ServiceAccountPermissionRepository
+	saRepo         port.ServiceAccountRepository
+	permRepo       port.ServiceAccountPermissionRepository
+	collectionRepo port.CollectionRepository
+	lastUsedCache  sync.Map // uuid.UUID -> time.Time — debounce UpdateLastUsed writes
 }
 
 // NewServiceAccountService creates a new ServiceAccountService implementation.
 func NewServiceAccountService(
 	saRepo port.ServiceAccountRepository,
 	permRepo port.ServiceAccountPermissionRepository,
+	collectionRepo port.CollectionRepository,
 ) ServiceAccountService {
 	return &serviceAccountService{
-		saRepo:   saRepo,
-		permRepo: permRepo,
+		saRepo:         saRepo,
+		permRepo:       permRepo,
+		collectionRepo: collectionRepo,
 	}
 }
 
@@ -121,20 +126,19 @@ func (s *serviceAccountService) List(ctx context.Context, tenantID uuid.UUID, of
 }
 
 func (s *serviceAccountService) RotateAPIKey(ctx context.Context, tenantID, saID uuid.UUID) (*RotateAPIKeyOutput, error) {
-	sa, err := s.saRepo.GetByID(ctx, tenantID, saID)
-	if err != nil {
-		return nil, err
-	}
-
 	rawKey, keyHash, prefix, err := generateAPIKey()
 	if err != nil {
 		return nil, fmt.Errorf("generating API key: %w", err)
 	}
 
-	sa.APIKeyHash = keyHash
-	sa.APIKeyPrefix = prefix
+	// Atomic update — only succeeds if the SA exists, belongs to tenant, and is active
+	if err := s.saRepo.RotateKey(ctx, tenantID, saID, prefix, keyHash); err != nil {
+		return nil, err
+	}
 
-	if err := s.saRepo.Update(ctx, sa); err != nil {
+	// Re-fetch to return updated state
+	sa, err := s.saRepo.GetByID(ctx, tenantID, saID)
+	if err != nil {
 		return nil, err
 	}
 
@@ -145,13 +149,7 @@ func (s *serviceAccountService) RotateAPIKey(ctx context.Context, tenantID, saID
 }
 
 func (s *serviceAccountService) Revoke(ctx context.Context, tenantID, saID uuid.UUID) error {
-	sa, err := s.saRepo.GetByID(ctx, tenantID, saID)
-	if err != nil {
-		return err
-	}
-
-	sa.IsActive = false
-	return s.saRepo.Update(ctx, sa)
+	return s.saRepo.Revoke(ctx, tenantID, saID)
 }
 
 func (s *serviceAccountService) Delete(ctx context.Context, tenantID, saID uuid.UUID) error {
@@ -164,7 +162,14 @@ func (s *serviceAccountService) SetPermission(ctx context.Context, input *SASetP
 		return err
 	}
 
-	perm := &port.ServiceAccountPermission{
+	// Verify the collection belongs to the same tenant
+	if s.collectionRepo != nil {
+		if _, err := s.collectionRepo.GetByID(ctx, input.TenantID, input.CollectionID); err != nil {
+			return fmt.Errorf("collection not found in tenant: %w", domain.ErrCollectionNotFound)
+		}
+	}
+
+	perm := &domain.ServiceAccountPermission{
 		ServiceAccountID: input.ServiceAccountID,
 		CollectionID:     input.CollectionID,
 		TenantID:         input.TenantID,
@@ -174,7 +179,7 @@ func (s *serviceAccountService) SetPermission(ctx context.Context, input *SASetP
 	return s.permRepo.Upsert(ctx, perm)
 }
 
-func (s *serviceAccountService) ListPermissions(ctx context.Context, tenantID, saID uuid.UUID) ([]port.ServiceAccountPermission, error) {
+func (s *serviceAccountService) ListPermissions(ctx context.Context, tenantID, saID uuid.UUID) ([]domain.ServiceAccountPermission, error) {
 	// Verify the service account exists and belongs to the tenant
 	if _, err := s.saRepo.GetByID(ctx, tenantID, saID); err != nil {
 		return nil, err
@@ -213,17 +218,27 @@ func (s *serviceAccountService) Authenticate(ctx context.Context, rawKey string)
 		if subtle.ConstantTimeCompare([]byte(candidates[i].APIKeyHash), []byte(keyHash)) == 1 {
 			sa := &candidates[i]
 
+			// Defense-in-depth: verify active state in code (SQL already filters is_active=TRUE)
+			if !sa.IsActive {
+				return nil, domain.ErrAPIKeyRevoked
+			}
+
 			// Check expiry
 			if sa.ExpiresAt != nil && sa.ExpiresAt.Before(time.Now()) {
 				return nil, domain.ErrAPIKeyRevoked
 			}
 
-			// Update last used (non-blocking)
-			go func(id uuid.UUID) {
-				if updateErr := s.saRepo.UpdateLastUsed(context.Background(), id); updateErr != nil {
-					log.Printf("WARNING: failed to update service account last_used_at: %v", updateErr)
-				}
-			}(sa.ID)
+			// Update last used (non-blocking, debounced to 60s per SA)
+			now := time.Now()
+			if prev, loaded := s.lastUsedCache.Load(sa.ID); !loaded ||
+				now.Sub(prev.(time.Time)) > 60*time.Second {
+				s.lastUsedCache.Store(sa.ID, now)
+				go func(id uuid.UUID) {
+					if updateErr := s.saRepo.UpdateLastUsed(context.Background(), id); updateErr != nil {
+						log.Printf("WARNING: failed to update service account last_used_at: %v", updateErr)
+					}
+				}(sa.ID)
+			}
 
 			return sa, nil
 		}

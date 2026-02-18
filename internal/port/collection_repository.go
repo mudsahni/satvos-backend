@@ -13,6 +13,7 @@ type CollectionRepository interface {
 	Create(ctx context.Context, collection *domain.Collection) error
 	GetByID(ctx context.Context, tenantID, collectionID uuid.UUID) (*domain.Collection, error)
 	ListByUser(ctx context.Context, tenantID, userID uuid.UUID, offset, limit int) ([]domain.Collection, int, error)
+	ListByServiceAccount(ctx context.Context, tenantID, saID uuid.UUID, offset, limit int) ([]domain.Collection, int, error)
 	ListByTenant(ctx context.Context, tenantID uuid.UUID, offset, limit int) ([]domain.Collection, int, error)
 	Update(ctx context.Context, collection *domain.Collection) error
 	Delete(ctx context.Context, tenantID, collectionID uuid.UUID) error

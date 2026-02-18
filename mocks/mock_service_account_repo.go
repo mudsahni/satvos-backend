@@ -48,6 +48,16 @@ func (m *MockServiceAccountRepo) Update(ctx context.Context, sa *domain.ServiceA
 	return args.Error(0)
 }
 
+func (m *MockServiceAccountRepo) Revoke(ctx context.Context, tenantID, saID uuid.UUID) error {
+	args := m.Called(ctx, tenantID, saID)
+	return args.Error(0)
+}
+
+func (m *MockServiceAccountRepo) RotateKey(ctx context.Context, tenantID, saID uuid.UUID, newPrefix, newHash string) error {
+	args := m.Called(ctx, tenantID, saID, newPrefix, newHash)
+	return args.Error(0)
+}
+
 func (m *MockServiceAccountRepo) Delete(ctx context.Context, tenantID, saID uuid.UUID) error {
 	args := m.Called(ctx, tenantID, saID)
 	return args.Error(0)

@@ -91,6 +91,35 @@ func (r *serviceAccountRepo) Update(ctx context.Context, sa *domain.ServiceAccou
 	return nil
 }
 
+func (r *serviceAccountRepo) Revoke(ctx context.Context, tenantID, saID uuid.UUID) error {
+	result, err := r.db.ExecContext(ctx,
+		"UPDATE service_accounts SET is_active = FALSE, updated_at = NOW() WHERE id = $1 AND tenant_id = $2",
+		saID, tenantID)
+	if err != nil {
+		return fmt.Errorf("revoking service account: %w", err)
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return domain.ErrServiceAccountNotFound
+	}
+	return nil
+}
+
+func (r *serviceAccountRepo) RotateKey(ctx context.Context, tenantID, saID uuid.UUID, newPrefix, newHash string) error {
+	result, err := r.db.ExecContext(ctx,
+		`UPDATE service_accounts SET api_key_prefix = $1, api_key_hash = $2, updated_at = NOW()
+		 WHERE id = $3 AND tenant_id = $4 AND is_active = TRUE`,
+		newPrefix, newHash, saID, tenantID)
+	if err != nil {
+		return fmt.Errorf("rotating service account key: %w", err)
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return domain.ErrServiceAccountNotFound
+	}
+	return nil
+}
+
 func (r *serviceAccountRepo) Delete(ctx context.Context, tenantID, saID uuid.UUID) error {
 	result, err := r.db.ExecContext(ctx,
 		"DELETE FROM service_accounts WHERE id = $1 AND tenant_id = $2", saID, tenantID)
@@ -124,7 +153,7 @@ func NewServiceAccountPermissionRepo(db *sqlx.DB) port.ServiceAccountPermissionR
 	return &serviceAccountPermissionRepo{db: db}
 }
 
-func (r *serviceAccountPermissionRepo) Upsert(ctx context.Context, perm *port.ServiceAccountPermission) error {
+func (r *serviceAccountPermissionRepo) Upsert(ctx context.Context, perm *domain.ServiceAccountPermission) error {
 	perm.ID = uuid.New()
 	_, err := r.db.NamedExecContext(ctx, `
 		INSERT INTO service_account_permissions (id, service_account_id, collection_id, tenant_id, permission, granted_by, created_at)
@@ -138,8 +167,8 @@ func (r *serviceAccountPermissionRepo) Upsert(ctx context.Context, perm *port.Se
 	return nil
 }
 
-func (r *serviceAccountPermissionRepo) GetByAccountAndCollection(ctx context.Context, saID, collectionID uuid.UUID) (*port.ServiceAccountPermission, error) {
-	var perm port.ServiceAccountPermission
+func (r *serviceAccountPermissionRepo) GetByAccountAndCollection(ctx context.Context, saID, collectionID uuid.UUID) (*domain.ServiceAccountPermission, error) {
+	var perm domain.ServiceAccountPermission
 	err := r.db.GetContext(ctx, &perm,
 		"SELECT * FROM service_account_permissions WHERE service_account_id = $1 AND collection_id = $2",
 		saID, collectionID)
@@ -152,8 +181,8 @@ func (r *serviceAccountPermissionRepo) GetByAccountAndCollection(ctx context.Con
 	return &perm, nil
 }
 
-func (r *serviceAccountPermissionRepo) ListByAccount(ctx context.Context, saID uuid.UUID) ([]port.ServiceAccountPermission, error) {
-	var perms []port.ServiceAccountPermission
+func (r *serviceAccountPermissionRepo) ListByAccount(ctx context.Context, saID uuid.UUID) ([]domain.ServiceAccountPermission, error) {
+	var perms []domain.ServiceAccountPermission
 	err := r.db.SelectContext(ctx, &perms,
 		"SELECT * FROM service_account_permissions WHERE service_account_id = $1 ORDER BY created_at DESC", saID)
 	if err != nil {

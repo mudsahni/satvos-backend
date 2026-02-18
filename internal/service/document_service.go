@@ -134,7 +134,10 @@ func NewDocumentService(deps *DocumentServiceDeps) DocumentService {
 // requireCollectionPerm delegates to the shared RequireCollectionPerm helper.
 // For service accounts, it checks the service_account_permissions table instead.
 func (s *documentService) requireCollectionPerm(ctx context.Context, collectionID, userID uuid.UUID, role domain.UserRole, minLevel domain.CollectionPermission) error {
-	if role == domain.RoleService && s.saPermRepo != nil {
+	if role == domain.RoleService {
+		if s.saPermRepo == nil {
+			return domain.ErrCollectionPermDenied
+		}
 		return RequireServiceAccountCollectionPerm(ctx, s.saPermRepo, collectionID, userID, minLevel)
 	}
 	return RequireCollectionPerm(ctx, s.permRepo, collectionID, userID, role, minLevel)

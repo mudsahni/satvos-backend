@@ -378,6 +378,16 @@ type ServiceAccount struct {
 	UpdatedAt    time.Time  `db:"updated_at" json:"updated_at"`
 }
 
+// ServiceAccountPermission represents a service account's permission on a collection.
+type ServiceAccountPermission struct {
+	ID               uuid.UUID            `db:"id" json:"id"`
+	ServiceAccountID uuid.UUID            `db:"service_account_id" json:"service_account_id"`
+	CollectionID     uuid.UUID            `db:"collection_id" json:"collection_id"`
+	TenantID         uuid.UUID            `db:"tenant_id" json:"tenant_id"`
+	Permission       CollectionPermission `db:"permission" json:"permission"`
+	GrantedBy        uuid.UUID            `db:"granted_by" json:"granted_by"`
+}
+
 // FileMeta stores metadata about an uploaded file.
 type FileMeta struct {
 	ID           uuid.UUID  `db:"id" json:"id"`

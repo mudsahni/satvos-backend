@@ -177,11 +177,13 @@ func (r *documentRepo) ListByUserCollections(ctx context.Context, tenantID, user
 
 func (r *documentRepo) ListByServiceAccountCollections(ctx context.Context, tenantID, saID uuid.UUID, assignedTo *uuid.UUID, offset, limit int) ([]domain.Document, int, error) {
 	countQuery := `SELECT COUNT(*) FROM documents d
-		 INNER JOIN service_account_permissions sap ON sap.collection_id = d.collection_id
-		 WHERE d.tenant_id = $1 AND sap.service_account_id = $2`
+		 INNER JOIN service_account_permissions sap
+		     ON sap.collection_id = d.collection_id AND sap.service_account_id = $2 AND sap.tenant_id = $1
+		 WHERE d.tenant_id = $1`
 	selectQuery := `SELECT d.* FROM documents d
-		 INNER JOIN service_account_permissions sap ON sap.collection_id = d.collection_id
-		 WHERE d.tenant_id = $1 AND sap.service_account_id = $2`
+		 INNER JOIN service_account_permissions sap
+		     ON sap.collection_id = d.collection_id AND sap.service_account_id = $2 AND sap.tenant_id = $1
+		 WHERE d.tenant_id = $1`
 	args := []interface{}{tenantID, saID}
 
 	if assignedTo != nil {

@@ -35,6 +35,14 @@ func (m *MockCollectionRepo) ListByUser(ctx context.Context, tenantID, userID uu
 	return args.Get(0).([]domain.Collection), args.Int(1), args.Error(2)
 }
 
+func (m *MockCollectionRepo) ListByServiceAccount(ctx context.Context, tenantID, saID uuid.UUID, offset, limit int) ([]domain.Collection, int, error) {
+	args := m.Called(ctx, tenantID, saID, offset, limit)
+	if args.Get(0) == nil {
+		return nil, args.Int(1), args.Error(2)
+	}
+	return args.Get(0).([]domain.Collection), args.Int(1), args.Error(2)
+}
+
 func (m *MockCollectionRepo) ListByTenant(ctx context.Context, tenantID uuid.UUID, offset, limit int) ([]domain.Collection, int, error) {
 	args := m.Called(ctx, tenantID, offset, limit)
 	if args.Get(0) == nil {
