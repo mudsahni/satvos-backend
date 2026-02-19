@@ -50,13 +50,15 @@ class SatvosClient:
         if not self._authenticated:
             raise AuthenticationError("Not authenticated — call authenticate_with_api_key() first")
 
-    def create_collection(self, name: str, description: str) -> str:
+    def create_collection(self, name: str, description: str, *, owner_email: str | None = None) -> str:
         """Create a collection and return its ID.
 
         Raises SatvosAPIError on failure.
         """
         self._ensure_auth()
         body: dict = {"name": name, "description": description}
+        if owner_email:
+            body["owner_email"] = owner_email
         resp = self._session.post(
             f"{self._base_url}/collections",
             json=body,
@@ -132,7 +134,7 @@ class SatvosClient:
         else:
             description = f"Auto-imported from email for {company_name}"
 
-        collection_id = self.create_collection(collection_name, description)
+        collection_id = self.create_collection(collection_name, description, owner_email=sender_email)
         logger.info("Created collection %s: %s", collection_id, collection_name)
 
         result = ProcessingResult(
