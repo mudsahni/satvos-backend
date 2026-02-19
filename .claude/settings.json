@@ -1,8 +1,8 @@
 {
   "enabledPlugins": {
     "superpowers@claude-plugins-official": false,
-    "code-simplifier@claude-plugins-official": true,
+    "code-simplifier@claude-plugins-official": false,
     "security-guidance@claude-plugins-official": true,
-    "feature-dev@claude-plugins-official": true
+    "feature-dev@claude-plugins-official": false
   }
 }

@@ -23,7 +23,9 @@
       "Bash(golangci-lint run:*)",
       "Bash(ls:*)",
       "Bash(gh repo view:*)",
-      "Bash(gh api:*)"
+      "Bash(gh api:*)",
+      "Bash(xargs -0 awk:*)",
+      "Bash(make test:*)"
     ]
   }
 }

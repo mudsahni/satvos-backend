@@ -172,13 +172,34 @@ func Load() (*Config, error) {
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
 
-	// Server defaults
+	setDefaults(v)
+	if err := bindEnvVars(v); err != nil {
+		return nil, err
+	}
+
+	return &Config{
+		Server:     buildServerConfig(v),
+		DB:         buildDBConfig(v),
+		JWT:        buildJWTConfig(v),
+		S3:         buildS3Config(v),
+		Log:        buildLogConfig(v),
+		CORS:       buildCORSConfig(v),
+		Parser:     buildParserConfig(v),
+		Queue:      buildQueueConfig(v),
+		FreeTier:   buildFreeTierConfig(v),
+		Email:      buildEmailConfig(v),
+		GoogleAuth: buildGoogleAuthConfig(v),
+	}, nil
+}
+
+func setDefaults(v *viper.Viper) {
+	// Server
 	v.SetDefault("server.port", ":8080")
 	v.SetDefault("server.read_timeout", "15s")
 	v.SetDefault("server.write_timeout", "15s")
 	v.SetDefault("server.environment", "development")
 
-	// DB defaults
+	// DB
 	v.SetDefault("db.host", "localhost")
 	v.SetDefault("db.port", 5432)
 	v.SetDefault("db.user", "satvos")
@@ -188,32 +209,32 @@ func Load() (*Config, error) {
 	v.SetDefault("db.max_open", 25)
 	v.SetDefault("db.max_idle", 10)
 
-	// JWT defaults
+	// JWT
 	v.SetDefault("jwt.secret", "change-me-in-production")
 	v.SetDefault("jwt.access_expiry", "15m")
 	v.SetDefault("jwt.refresh_expiry", "168h")
 	v.SetDefault("jwt.issuer", "satvos")
 
-	// S3 defaults
+	// S3
 	v.SetDefault("s3.region", "us-east-1")
 	v.SetDefault("s3.bucket", "satvos-uploads")
 	v.SetDefault("s3.endpoint", "")
 	v.SetDefault("s3.max_file_size_mb", 50)
 	v.SetDefault("s3.presign_expiry", 3600)
 
-	// Log defaults
+	// Log
 	v.SetDefault("log.level", "debug")
 	v.SetDefault("log.format", "console")
 
-	// CORS defaults (localhost origins for development)
+	// CORS (localhost origins for development)
 	v.SetDefault("cors.allowed_origins", "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001")
 
-	// Queue defaults
+	// Queue
 	v.SetDefault("queue.poll_interval_secs", 10)
 	v.SetDefault("queue.max_retries", 5)
 	v.SetDefault("queue.concurrency", 5)
 
-	// Email defaults
+	// Email
 	v.SetDefault("email.provider", "noop")
 	v.SetDefault("email.region", "ap-south-1")
 	v.SetDefault("email.from_address", "noreply@satvos.com")
@@ -222,21 +243,21 @@ func Load() (*Config, error) {
 	v.SetDefault("email.access_key", "")
 	v.SetDefault("email.secret_key", "")
 
-	// Google Auth defaults
+	// Google Auth
 	v.SetDefault("google_auth.client_id", "")
 
-	// Free tier defaults
+	// Free tier
 	v.SetDefault("free_tier.tenant_slug", "satvos")
 	v.SetDefault("free_tier.monthly_limit", 5)
 
-	// Parser defaults (legacy flat)
+	// Parser (legacy flat)
 	v.SetDefault("parser.provider", "claude")
 	v.SetDefault("parser.api_key", "")
 	v.SetDefault("parser.default_model", "claude-sonnet-4-20250514")
 	v.SetDefault("parser.max_retries", 2)
 	v.SetDefault("parser.timeout_secs", 120)
 
-	// Parser primary/secondary defaults
+	// Parser primary/secondary/tertiary
 	v.SetDefault("parser.primary.provider", "")
 	v.SetDefault("parser.primary.api_key", "")
 	v.SetDefault("parser.primary.default_model", "")
@@ -252,8 +273,9 @@ func Load() (*Config, error) {
 	v.SetDefault("parser.tertiary.default_model", "")
 	v.SetDefault("parser.tertiary.max_retries", 2)
 	v.SetDefault("parser.tertiary.timeout_secs", 120)
+}
 
-	// Bind environment variables explicitly for nested keys
+func bindEnvVars(v *viper.Viper) error {
 	envBindings := map[string]string{
 		"server.port":          "SATVOS_SERVER_PORT",
 		"server.read_timeout":  "SATVOS_SERVER_READ_TIMEOUT",
@@ -316,24 +338,29 @@ func Load() (*Config, error) {
 		"google_auth.client_id":          "SATVOS_GOOGLE_AUTH_CLIENT_ID",
 	}
 	for key, env := range envBindings {
-		_ = v.BindEnv(key, env)
+		if err := v.BindEnv(key, env); err != nil {
+			return fmt.Errorf("binding env var %s: %w", env, err)
+		}
 	}
+	return nil
+}
 
-	cfg := &Config{}
-
+func buildServerConfig(v *viper.Viper) ServerConfig {
 	// Railway/Heroku/Render set a PORT env var. Use it if SATVOS_SERVER_PORT is not explicitly set.
 	serverPort := v.GetString("server.port")
 	if port := os.Getenv("PORT"); port != "" && os.Getenv("SATVOS_SERVER_PORT") == "" {
 		serverPort = ":" + port
 	}
-
-	cfg.Server = ServerConfig{
+	return ServerConfig{
 		Port:         serverPort,
 		ReadTimeout:  v.GetDuration("server.read_timeout"),
 		WriteTimeout: v.GetDuration("server.write_timeout"),
 		Environment:  v.GetString("server.environment"),
 	}
-	cfg.DB = DBConfig{
+}
+
+func buildDBConfig(v *viper.Viper) DBConfig {
+	return DBConfig{
 		Host:     v.GetString("db.host"),
 		Port:     v.GetInt("db.port"),
 		User:     v.GetString("db.user"),
@@ -343,13 +370,19 @@ func Load() (*Config, error) {
 		MaxOpen:  v.GetInt("db.max_open"),
 		MaxIdle:  v.GetInt("db.max_idle"),
 	}
-	cfg.JWT = JWTConfig{
+}
+
+func buildJWTConfig(v *viper.Viper) JWTConfig {
+	return JWTConfig{
 		Secret:             v.GetString("jwt.secret"),
 		AccessTokenExpiry:  v.GetDuration("jwt.access_expiry"),
 		RefreshTokenExpiry: v.GetDuration("jwt.refresh_expiry"),
 		Issuer:             v.GetString("jwt.issuer"),
 	}
-	cfg.S3 = S3Config{
+}
+
+func buildS3Config(v *viper.Viper) S3Config {
+	return S3Config{
 		Region:        v.GetString("s3.region"),
 		Bucket:        v.GetString("s3.bucket"),
 		Endpoint:      v.GetString("s3.endpoint"),
@@ -358,23 +391,28 @@ func Load() (*Config, error) {
 		MaxFileSizeMB: v.GetInt64("s3.max_file_size_mb"),
 		PresignExpiry: v.GetInt64("s3.presign_expiry"),
 	}
-	cfg.Log = LogConfig{
+}
+
+func buildLogConfig(v *viper.Viper) LogConfig {
+	return LogConfig{
 		Level:  v.GetString("log.level"),
 		Format: v.GetString("log.format"),
 	}
-	// Parse CORS allowed origins from comma-separated string
-	var corsOrigins []string
+}
+
+func buildCORSConfig(v *viper.Viper) CORSConfig {
+	var origins []string
 	for _, o := range strings.Split(v.GetString("cors.allowed_origins"), ",") {
 		o = strings.TrimSpace(o)
 		if o != "" {
-			corsOrigins = append(corsOrigins, o)
+			origins = append(origins, o)
 		}
 	}
-	cfg.CORS = CORSConfig{
-		AllowedOrigins: corsOrigins,
-	}
+	return CORSConfig{AllowedOrigins: origins}
+}
 
-	cfg.Parser = ParserConfig{
+func buildParserConfig(v *viper.Viper) ParserConfig {
+	return ParserConfig{
 		Provider:     v.GetString("parser.provider"),
 		APIKey:       v.GetString("parser.api_key"),
 		DefaultModel: v.GetString("parser.default_model"),
@@ -402,19 +440,25 @@ func Load() (*Config, error) {
 			TimeoutSecs:  v.GetInt("parser.tertiary.timeout_secs"),
 		},
 	}
+}
 
-	cfg.Queue = QueueConfig{
+func buildQueueConfig(v *viper.Viper) QueueConfig {
+	return QueueConfig{
 		PollIntervalSecs: v.GetInt("queue.poll_interval_secs"),
 		MaxRetries:       v.GetInt("queue.max_retries"),
 		Concurrency:      v.GetInt("queue.concurrency"),
 	}
+}
 
-	cfg.FreeTier = FreeTierConfig{
+func buildFreeTierConfig(v *viper.Viper) FreeTierConfig {
+	return FreeTierConfig{
 		TenantSlug:   v.GetString("free_tier.tenant_slug"),
 		MonthlyLimit: v.GetInt("free_tier.monthly_limit"),
 	}
+}
 
-	cfg.Email = EmailConfig{
+func buildEmailConfig(v *viper.Viper) EmailConfig {
+	return EmailConfig{
 		Provider:    v.GetString("email.provider"),
 		Region:      v.GetString("email.region"),
 		FromAddress: v.GetString("email.from_address"),
@@ -423,10 +467,10 @@ func Load() (*Config, error) {
 		AccessKey:   v.GetString("email.access_key"),
 		SecretKey:   v.GetString("email.secret_key"),
 	}
+}
 
-	cfg.GoogleAuth = GoogleAuthConfig{
+func buildGoogleAuthConfig(v *viper.Viper) GoogleAuthConfig {
+	return GoogleAuthConfig{
 		ClientID: v.GetString("google_auth.client_id"),
 	}
-
-	return cfg, nil
 }
