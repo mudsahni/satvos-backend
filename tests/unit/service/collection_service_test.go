@@ -27,7 +27,7 @@ func setupCollectionService() (
 	fileSvc := new(mocks.MockFileService)
 	userRepo := new(mocks.MockUserRepo)
 	userRepo.On("GetByID", mock.Anything, mock.Anything, mock.Anything).Return(&domain.User{}, nil).Maybe()
-	svc := service.NewCollectionService(collRepo, permRepo, fileRepo, fileSvc, userRepo)
+	svc := service.NewCollectionService(collRepo, permRepo, fileRepo, fileSvc, userRepo, nil)
 	return svc, collRepo, permRepo, fileRepo, userRepo
 }
 
@@ -997,4 +997,126 @@ func TestCollectionService_EffectivePermissions_ManagerBatchQuery(t *testing.T) 
 	// Manager implicit = editor; no explicit -> editor
 	assert.Equal(t, domain.CollectionPermEditor, result[id2])
 	permRepo.AssertExpectations(t)
+}
+
+// --- Service Account Collection Creation ---
+
+func setupCollectionServiceWithSA() (
+	service.CollectionService,
+	*mocks.MockCollectionRepo,
+	*mocks.MockServiceAccountPermissionRepo,
+) {
+	collRepo := new(mocks.MockCollectionRepo)
+	permRepo := new(mocks.MockCollectionPermissionRepo)
+	fileRepo := new(mocks.MockCollectionFileRepo)
+	fileSvc := new(mocks.MockFileService)
+	userRepo := new(mocks.MockUserRepo)
+	saPermRepo := new(mocks.MockServiceAccountPermissionRepo)
+	svc := service.NewCollectionService(collRepo, permRepo, fileRepo, fileSvc, userRepo, saPermRepo)
+	return svc, collRepo, saPermRepo
+}
+
+func TestCollectionService_Create_ServiceAccountSuccess(t *testing.T) {
+	svc, collRepo, saPermRepo := setupCollectionServiceWithSA()
+
+	tenantID := uuid.New()
+	saID := uuid.New()
+
+	collRepo.On("Create", mock.Anything, mock.AnythingOfType("*domain.Collection")).Return(nil)
+	saPermRepo.On("Upsert", mock.Anything, mock.AnythingOfType("*domain.ServiceAccountPermission")).Return(nil)
+
+	result, err := svc.Create(context.Background(), &service.CreateCollectionInput{
+		TenantID:  tenantID,
+		CreatedBy: saID,
+		Role:      domain.RoleService,
+		Name:      "SA Collection",
+	})
+
+	assert.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.Equal(t, "SA Collection", result.Name)
+
+	// Verify SA perm was upserted, not regular perm
+	saPermRepo.AssertCalled(t, "Upsert", mock.Anything, mock.AnythingOfType("*domain.ServiceAccountPermission"))
+	collRepo.AssertExpectations(t)
+}
+
+func TestCollectionService_Create_ServiceAccountWithoutSAPermRepoDenied(t *testing.T) {
+	// Use the regular setup (nil saPermRepo)
+	svc, _, _, _, _ := setupCollectionService()
+
+	result, err := svc.Create(context.Background(), &service.CreateCollectionInput{
+		TenantID:  uuid.New(),
+		CreatedBy: uuid.New(),
+		Role:      domain.RoleService,
+		Name:      "Should Fail",
+	})
+
+	assert.Nil(t, result)
+	assert.ErrorIs(t, err, domain.ErrInsufficientRole)
+}
+
+func TestCollectionService_Create_ServiceAccountDenied_StillBlocksViewer(t *testing.T) {
+	svc, _, _ := setupCollectionServiceWithSA()
+
+	result, err := svc.Create(context.Background(), &service.CreateCollectionInput{
+		TenantID:  uuid.New(),
+		CreatedBy: uuid.New(),
+		Role:      domain.RoleViewer,
+		Name:      "Should Fail",
+	})
+
+	assert.Nil(t, result)
+	assert.ErrorIs(t, err, domain.ErrInsufficientRole)
+}
+
+func TestCollectionService_BatchUploadFiles_SAPermCheck(t *testing.T) {
+	svc, _, saPermRepo := setupCollectionServiceWithSA()
+
+	collectionID := uuid.New()
+	saID := uuid.New()
+
+	// SA has editor permission
+	saPermRepo.On("GetByAccountAndCollection", mock.Anything, saID, collectionID).
+		Return(&domain.ServiceAccountPermission{Permission: domain.CollectionPermEditor}, nil)
+
+	// No files to upload — just verify permission path works
+	results, err := svc.BatchUploadFiles(context.Background(), uuid.New(), collectionID, saID, domain.RoleService, nil)
+
+	assert.NoError(t, err)
+	assert.Empty(t, results)
+	saPermRepo.AssertCalled(t, "GetByAccountAndCollection", mock.Anything, saID, collectionID)
+}
+
+func TestCollectionService_GetByID_SAPermCheck(t *testing.T) {
+	svc, collRepo, saPermRepo := setupCollectionServiceWithSA()
+
+	tenantID := uuid.New()
+	collectionID := uuid.New()
+	saID := uuid.New()
+	expected := &domain.Collection{ID: collectionID, TenantID: tenantID, Name: "Test"}
+
+	saPermRepo.On("GetByAccountAndCollection", mock.Anything, saID, collectionID).
+		Return(&domain.ServiceAccountPermission{Permission: domain.CollectionPermViewer}, nil)
+	collRepo.On("GetByID", mock.Anything, tenantID, collectionID).Return(expected, nil)
+
+	result, err := svc.GetByID(context.Background(), tenantID, collectionID, saID, domain.RoleService)
+
+	assert.NoError(t, err)
+	assert.Equal(t, expected, result)
+}
+
+func TestCollectionService_GetByID_SANoPerm(t *testing.T) {
+	svc, _, saPermRepo := setupCollectionServiceWithSA()
+
+	collectionID := uuid.New()
+	saID := uuid.New()
+
+	saPermRepo.On("GetByAccountAndCollection", mock.Anything, saID, collectionID).
+		Return(nil, domain.ErrCollectionPermDenied)
+
+	result, err := svc.GetByID(context.Background(), uuid.New(), collectionID, saID, domain.RoleService)
+
+	assert.Nil(t, result)
+	assert.ErrorIs(t, err, domain.ErrCollectionPermDenied)
 }

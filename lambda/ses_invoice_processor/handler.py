@@ -105,7 +105,7 @@ def _process_event(event: dict, config: Config) -> dict:
     # Authenticate and process
     api_base_url = tenant_config.api_base_url or config.default_api_base_url
     client = SatvosClient(api_base_url, tenant_slug)
-    client.authenticate(tenant_config.service_email, tenant_config.service_password)
+    client.authenticate_with_api_key(tenant_config.service_api_key)
 
     result = client.process_attachments(parsed.company_name, parsed.attachments, sender_email=parsed.sender)
 

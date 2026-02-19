@@ -12,13 +12,6 @@ logger = logging.getLogger("ses_invoice_processor")
 
 
 @dataclass
-class TokenPair:
-    access_token: str
-    refresh_token: str
-    expires_at: datetime
-
-
-@dataclass
 class ProcessingResult:
     collection_id: str
     collection_name: str
@@ -35,64 +28,27 @@ class SatvosClient:
         self._base_url = base_url
         self._tenant_slug = tenant_slug
         self._session = requests.Session()
-        self._token: TokenPair | None = None
+        self._authenticated = False
 
-    def authenticate(self, email: str, password: str) -> None:
-        """Authenticate with the SATVOS API and store tokens.
+    def authenticate_with_api_key(self, api_key: str) -> None:
+        """Authenticate with an API key (sk_... format).
 
-        Raises AuthenticationError on failure.
+        Sets the Authorization header for all subsequent requests.
+        Raises AuthenticationError if the key format is invalid.
         """
-        resp = self._session.post(
-            f"{self._base_url}/auth/login",
-            json={"tenant_slug": self._tenant_slug, "email": email, "password": password},
-        )
-        if resp.status_code != 200:
+        if not api_key or not api_key.startswith("sk_"):
             raise AuthenticationError(
-                f"Login failed: {resp.status_code}",
-                status_code=resp.status_code,
-                response_body=resp.text,
+                "Invalid API key format: must start with 'sk_'",
+                status_code=None,
+                response_body=None,
             )
-
-        data = resp.json()["data"]
-        self._token = TokenPair(
-            access_token=data["access_token"],
-            refresh_token=data["refresh_token"],
-            expires_at=datetime.fromisoformat(data["expires_at"]),
-        )
-        self._session.headers["Authorization"] = f"Bearer {self._token.access_token}"
+        self._session.headers["Authorization"] = f"Bearer {api_key}"
+        self._authenticated = True
 
     def _ensure_auth(self) -> None:
-        """Refresh the access token if it's expired or about to expire (60s buffer)."""
-        if self._token is None:
-            raise AuthenticationError("Not authenticated — call authenticate() first")
-
-        now = datetime.now(timezone.utc)
-        expires = self._token.expires_at
-        if expires.tzinfo is None:
-            expires = expires.replace(tzinfo=timezone.utc)
-
-        buffer_seconds = 60
-        if (expires - now).total_seconds() > buffer_seconds:
-            return
-
-        resp = self._session.post(
-            f"{self._base_url}/auth/refresh",
-            json={"refresh_token": self._token.refresh_token},
-        )
-        if resp.status_code != 200:
-            raise AuthenticationError(
-                f"Token refresh failed: {resp.status_code}",
-                status_code=resp.status_code,
-                response_body=resp.text,
-            )
-
-        data = resp.json()["data"]
-        self._token = TokenPair(
-            access_token=data["access_token"],
-            refresh_token=data["refresh_token"],
-            expires_at=datetime.fromisoformat(data["expires_at"]),
-        )
-        self._session.headers["Authorization"] = f"Bearer {self._token.access_token}"
+        """Verify that authentication has been set up."""
+        if not self._authenticated:
+            raise AuthenticationError("Not authenticated — call authenticate_with_api_key() first")
 
     def create_collection(self, name: str, description: str, *, owner_email: str | None = None) -> str:
         """Create a collection and return its ID.

@@ -49,6 +49,19 @@ func (r *serviceAccountRepo) GetByID(ctx context.Context, tenantID, saID uuid.UU
 	return &sa, nil
 }
 
+func (r *serviceAccountRepo) GetByName(ctx context.Context, tenantID uuid.UUID, name string) (*domain.ServiceAccount, error) {
+	var sa domain.ServiceAccount
+	err := r.db.GetContext(ctx, &sa,
+		"SELECT * FROM service_accounts WHERE tenant_id = $1 AND name = $2", tenantID, name)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, domain.ErrServiceAccountNotFound
+		}
+		return nil, fmt.Errorf("getting service account by name: %w", err)
+	}
+	return &sa, nil
+}
+
 func (r *serviceAccountRepo) GetByAPIKeyPrefix(ctx context.Context, prefix string) ([]domain.ServiceAccount, error) {
 	var accounts []domain.ServiceAccount
 	err := r.db.SelectContext(ctx, &accounts,

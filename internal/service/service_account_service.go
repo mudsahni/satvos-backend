@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
@@ -68,6 +69,10 @@ type ServiceAccountService interface {
 
 	// Authentication
 	Authenticate(ctx context.Context, rawKey string) (*domain.ServiceAccount, error)
+
+	// EnsureInboundEmailServiceAccount idempotently creates an "inbound_email" SA for a tenant.
+	// Returns the raw API key if created, or "" if already exists.
+	EnsureInboundEmailServiceAccount(ctx context.Context, tenantID, createdBy uuid.UUID) (string, error)
 }
 
 type serviceAccountService struct {
@@ -250,6 +255,28 @@ func (s *serviceAccountService) Authenticate(ctx context.Context, rawKey string)
 	}
 
 	return nil, domain.ErrAPIKeyInvalid
+}
+
+func (s *serviceAccountService) EnsureInboundEmailServiceAccount(ctx context.Context, tenantID, createdBy uuid.UUID) (string, error) {
+	_, err := s.saRepo.GetByName(ctx, tenantID, "inbound_email")
+	if err == nil {
+		// Already exists
+		return "", nil
+	}
+	if !errors.Is(err, domain.ErrServiceAccountNotFound) {
+		return "", fmt.Errorf("checking for inbound_email SA: %w", err)
+	}
+
+	output, err := s.Create(ctx, &CreateServiceAccountInput{
+		TenantID:    tenantID,
+		Name:        "inbound_email",
+		Description: "Auto-created service account for inbound email processing",
+		CreatedBy:   createdBy,
+	})
+	if err != nil {
+		return "", fmt.Errorf("creating inbound_email SA: %w", err)
+	}
+	return output.APIKey, nil
 }
 
 // generateAPIKey creates a new random API key and returns (rawKey, sha256Hash, prefix).

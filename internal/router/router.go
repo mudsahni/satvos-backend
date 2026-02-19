@@ -79,7 +79,7 @@ func Setup(
 
 	// Collection routes
 	collections := protected.Group("/collections")
-	collections.POST("", middleware.RequireRole(domain.RoleAdmin, domain.RoleManager, domain.RoleMember), collectionH.Create)
+	collections.POST("", middleware.RequireRole(domain.RoleAdmin, domain.RoleManager, domain.RoleMember, domain.RoleService), collectionH.Create)
 	collections.GET("", collectionH.List)
 	collections.GET("/:id", collectionH.GetByID)
 	collections.PUT("/:id", collectionH.Update)

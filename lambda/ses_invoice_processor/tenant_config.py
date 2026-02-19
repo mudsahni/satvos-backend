@@ -37,8 +37,7 @@ def extract_tenant_slug(recipients: list[str]) -> str | None:
 @dataclass(frozen=True)
 class TenantConfig:
     tenant_slug: str
-    service_email: str
-    service_password: str
+    service_api_key: str
     enabled: bool
     api_base_url: str | None = None
 
@@ -47,8 +46,7 @@ class TenantConfig:
         """Parse a DynamoDB item (already deserialized by boto3 resource/Table)."""
         return cls(
             tenant_slug=item["tenant_slug"],
-            service_email=item["service_email"],
-            service_password=item["service_password"],
+            service_api_key=item["service_api_key"],
             enabled=item.get("enabled", True),
             api_base_url=item.get("api_base_url") or None,
         )

@@ -75,6 +75,11 @@ func (m *MockServiceAccountService) RemovePermission(ctx context.Context, tenant
 	return args.Error(0)
 }
 
+func (m *MockServiceAccountService) EnsureInboundEmailServiceAccount(ctx context.Context, tenantID, createdBy uuid.UUID) (string, error) {
+	args := m.Called(ctx, tenantID, createdBy)
+	return args.String(0), args.Error(1)
+}
+
 func (m *MockServiceAccountService) Authenticate(ctx context.Context, rawKey string) (*domain.ServiceAccount, error) {
 	args := m.Called(ctx, rawKey)
 	if args.Get(0) == nil {

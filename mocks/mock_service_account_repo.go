@@ -27,6 +27,14 @@ func (m *MockServiceAccountRepo) GetByID(ctx context.Context, tenantID, saID uui
 	return args.Get(0).(*domain.ServiceAccount), args.Error(1)
 }
 
+func (m *MockServiceAccountRepo) GetByName(ctx context.Context, tenantID uuid.UUID, name string) (*domain.ServiceAccount, error) {
+	args := m.Called(ctx, tenantID, name)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.ServiceAccount), args.Error(1)
+}
+
 func (m *MockServiceAccountRepo) GetByAPIKeyPrefix(ctx context.Context, prefix string) ([]domain.ServiceAccount, error) {
 	args := m.Called(ctx, prefix)
 	if args.Get(0) == nil {

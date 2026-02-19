@@ -12,6 +12,7 @@ import (
 type ServiceAccountRepository interface {
 	Create(ctx context.Context, sa *domain.ServiceAccount) error
 	GetByID(ctx context.Context, tenantID, saID uuid.UUID) (*domain.ServiceAccount, error)
+	GetByName(ctx context.Context, tenantID uuid.UUID, name string) (*domain.ServiceAccount, error)
 	GetByAPIKeyPrefix(ctx context.Context, prefix string) ([]domain.ServiceAccount, error)
 	ListByTenant(ctx context.Context, tenantID uuid.UUID, offset, limit int) ([]domain.ServiceAccount, int, error)
 	Update(ctx context.Context, sa *domain.ServiceAccount) error
