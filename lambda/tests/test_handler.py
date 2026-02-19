@@ -104,8 +104,10 @@ def _setup_s3(tenant_slug: str, message_id: str, email_bytes: bytes):
 TEST_API_KEY = "sk_" + "a" * 64
 
 
-def _setup_dynamodb(tenant_slug="passpl", enabled=True, api_base_url=None):
+def _setup_dynamodb(tenant_slug="passpl", enabled=True, api_base_url=None, allowed_senders=None):
     """Create DynamoDB table and insert a tenant config."""
+    if allowed_senders is None:
+        allowed_senders = ["*"]  # default: accept all senders (backwards-compatible for existing tests)
     dynamodb = boto3.resource("dynamodb", region_name="us-east-1")
     dynamodb.create_table(
         TableName=TABLE_NAME,
@@ -117,6 +119,7 @@ def _setup_dynamodb(tenant_slug="passpl", enabled=True, api_base_url=None):
         "tenant_slug": tenant_slug,
         "service_api_key": TEST_API_KEY,
         "enabled": enabled,
+        "allowed_senders": allowed_senders,
     }
     if api_base_url:
         item["api_base_url"] = api_base_url
@@ -322,6 +325,7 @@ class TestLambdaHandler:
             "tenant_slug": "tenant-b",
             "service_api_key": TEST_API_KEY,
             "enabled": True,
+            "allowed_senders": ["*"],
         })
 
         _setup_s3("tenant-a", "msg-a", VALID_EMAIL_BYTES)
@@ -379,3 +383,55 @@ class TestLambdaHandler:
         assert "files_uploaded=1" in result["body"]
         # Verify requests went to custom URL, not default
         assert all(custom_url in call.request.url for call in responses.calls)
+
+    @mock_aws
+    def test_sender_not_in_allowlist(self):
+        """Sender not in allowed_senders is rejected."""
+        _setup_dynamodb("passpl", allowed_senders=["@company.com"])
+        _setup_s3("passpl", "test-msg-001", VALID_EMAIL_BYTES)
+
+        with patch.dict(os.environ, _env_vars(), clear=False):
+            result = lambda_handler(_ses_event(), None)
+
+        assert result["statusCode"] == 200
+        assert "sender not allowed" in result["body"]
+
+    @mock_aws
+    @responses.activate
+    def test_sender_domain_allowlist_match(self):
+        """Sender matching a domain allowlist entry is processed."""
+        # VALID_EMAIL_BYTES has From: sender@example.com
+        _setup_dynamodb("passpl", allowed_senders=["@example.com"])
+        _setup_s3("passpl", "test-msg-001", VALID_EMAIL_BYTES)
+        _mock_api_calls()
+
+        with patch.dict(os.environ, _env_vars(), clear=False):
+            result = lambda_handler(_ses_event(), None)
+
+        assert result["statusCode"] == 200
+        assert "files_uploaded=1" in result["body"]
+
+    @mock_aws
+    def test_missing_allowed_senders_rejects(self):
+        """Tenant without allowed_senders field rejects all senders (safe default)."""
+        # Manually create table and insert item WITHOUT allowed_senders
+        dynamodb = boto3.resource("dynamodb", region_name="us-east-1")
+        dynamodb.create_table(
+            TableName=TABLE_NAME,
+            KeySchema=[{"AttributeName": "tenant_slug", "KeyType": "HASH"}],
+            AttributeDefinitions=[{"AttributeName": "tenant_slug", "AttributeType": "S"}],
+            BillingMode="PAY_PER_REQUEST",
+        )
+        dynamodb.Table(TABLE_NAME).put_item(Item={
+            "tenant_slug": "passpl",
+            "service_api_key": TEST_API_KEY,
+            "enabled": True,
+            # no allowed_senders field
+        })
+        _setup_s3("passpl", "test-msg-001", VALID_EMAIL_BYTES)
+
+        with patch.dict(os.environ, _env_vars(), clear=False):
+            result = lambda_handler(_ses_event(), None)
+
+        assert result["statusCode"] == 200
+        assert "sender not allowed" in result["body"]

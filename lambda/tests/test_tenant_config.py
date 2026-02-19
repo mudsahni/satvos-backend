@@ -12,7 +12,9 @@ from ses_invoice_processor.tenant_config import (
     CACHE_TTL_SECONDS,
     TenantConfig,
     TenantConfigStore,
+    extract_email_address,
     extract_tenant_slug,
+    is_sender_allowed,
 )
 
 TABLE_NAME = "satvos-email-processor-tenants"
@@ -85,12 +87,14 @@ class TestTenantConfigFromDynamoDBItem:
             "tenant_slug": "passpl",
             "service_api_key": TEST_API_KEY,
             "enabled": True,
+            "allowed_senders": ["@company.com", "user@gmail.com"],
             "api_base_url": "https://custom.api.com/api/v1",
         }
         config = TenantConfig.from_dynamodb_item(item)
         assert config.tenant_slug == "passpl"
         assert config.service_api_key == TEST_API_KEY
         assert config.enabled is True
+        assert config.allowed_senders == ("@company.com", "user@gmail.com")
         assert config.api_base_url == "https://custom.api.com/api/v1"
 
     def test_minimal_item(self):
@@ -100,7 +104,17 @@ class TestTenantConfigFromDynamoDBItem:
         }
         config = TenantConfig.from_dynamodb_item(item)
         assert config.enabled is True  # default
+        assert config.allowed_senders == ()  # default — rejects all
         assert config.api_base_url is None  # default
+
+    def test_allowed_senders_from_dynamodb(self):
+        item = {
+            "tenant_slug": "test",
+            "service_api_key": TEST_API_KEY,
+            "allowed_senders": ["*"],
+        }
+        config = TenantConfig.from_dynamodb_item(item)
+        assert config.allowed_senders == ("*",)
 
     def test_empty_api_base_url_becomes_none(self):
         item = {
@@ -217,3 +231,61 @@ class TestTenantConfigStoreCache:
         # Second call should also raise (from cache)
         with pytest.raises(TenantDisabledError):
             store.get("off")
+
+
+class TestExtractEmailAddress:
+    def test_bare_email(self):
+        assert extract_email_address("user@example.com") == "user@example.com"
+
+    def test_display_name_with_angle_brackets(self):
+        assert extract_email_address("Mudit Sahni <muditsahni@msn.com>") == "muditsahni@msn.com"
+
+    def test_case_normalized(self):
+        assert extract_email_address("User@EXAMPLE.COM") == "user@example.com"
+
+    def test_display_name_case_normalized(self):
+        assert extract_email_address("John Doe <John@Company.COM>") == "john@company.com"
+
+    def test_whitespace_trimmed(self):
+        assert extract_email_address("  user@example.com  ") == "user@example.com"
+
+    def test_angle_brackets_with_spaces(self):
+        assert extract_email_address("Name < user@example.com >") == "user@example.com"
+
+
+class TestIsSenderAllowed:
+    def test_empty_list_rejects_all(self):
+        assert is_sender_allowed("anyone@example.com", ()) is False
+        assert is_sender_allowed("anyone@example.com", []) is False
+
+    def test_wildcard_accepts_all(self):
+        assert is_sender_allowed("anyone@example.com", ("*",)) is True
+        assert is_sender_allowed("other@other.com", ["*"]) is True
+
+    def test_exact_email_match(self):
+        assert is_sender_allowed("user@gmail.com", ("user@gmail.com",)) is True
+
+    def test_exact_email_case_insensitive(self):
+        assert is_sender_allowed("User@Gmail.COM", ("user@gmail.com",)) is True
+
+    def test_exact_email_no_match(self):
+        assert is_sender_allowed("other@gmail.com", ("user@gmail.com",)) is False
+
+    def test_domain_match(self):
+        assert is_sender_allowed("anyone@company.com", ("@company.com",)) is True
+
+    def test_domain_match_case_insensitive(self):
+        assert is_sender_allowed("user@COMPANY.COM", ("@company.com",)) is True
+
+    def test_domain_no_match(self):
+        assert is_sender_allowed("user@other.com", ("@company.com",)) is False
+
+    def test_multiple_entries(self):
+        allowed = ("@company.com", "contractor@gmail.com")
+        assert is_sender_allowed("employee@company.com", allowed) is True
+        assert is_sender_allowed("contractor@gmail.com", allowed) is True
+        assert is_sender_allowed("random@gmail.com", allowed) is False
+
+    def test_domain_does_not_match_substring(self):
+        # "@company.com" should NOT match "user@notcompany.com"
+        assert is_sender_allowed("user@notcompany.com", ("@company.com",)) is False

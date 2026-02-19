@@ -32,3 +32,7 @@ class AuthenticationError(SatvosAPIError):
 
 class TenantDisabledError(InvoiceProcessorError):
     """Tenant exists but processing is disabled."""
+
+
+class SenderNotAllowedError(InvoiceProcessorError):
+    """Email sender is not in the tenant's allowed_senders list."""

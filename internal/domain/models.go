@@ -20,18 +20,18 @@ type Tenant struct {
 
 // User represents an authenticated user belonging to a tenant.
 type User struct {
-	ID                      uuid.UUID `db:"id" json:"id"`
-	TenantID                uuid.UUID `db:"tenant_id" json:"tenant_id"`
-	Email                   string    `db:"email" json:"email"`
-	PasswordHash            string    `db:"password_hash" json:"-"`
-	FullName                string    `db:"full_name" json:"full_name"`
-	Role                    UserRole  `db:"role" json:"role"`
-	IsActive                bool      `db:"is_active" json:"is_active"`
-	MonthlyDocumentLimit    int        `db:"monthly_document_limit" json:"monthly_document_limit"`
-	DocumentsUsedThisPeriod int        `db:"documents_used_this_period" json:"documents_used_this_period"`
-	CurrentPeriodStart      time.Time  `db:"current_period_start" json:"current_period_start"`
-	EmailVerified           bool       `db:"email_verified" json:"email_verified"`
-	EmailVerifiedAt         *time.Time `db:"email_verified_at" json:"email_verified_at,omitempty"`
+	ID                      uuid.UUID    `db:"id" json:"id"`
+	TenantID                uuid.UUID    `db:"tenant_id" json:"tenant_id"`
+	Email                   string       `db:"email" json:"email"`
+	PasswordHash            string       `db:"password_hash" json:"-"`
+	FullName                string       `db:"full_name" json:"full_name"`
+	Role                    UserRole     `db:"role" json:"role"`
+	IsActive                bool         `db:"is_active" json:"is_active"`
+	MonthlyDocumentLimit    int          `db:"monthly_document_limit" json:"monthly_document_limit"`
+	DocumentsUsedThisPeriod int          `db:"documents_used_this_period" json:"documents_used_this_period"`
+	CurrentPeriodStart      time.Time    `db:"current_period_start" json:"current_period_start"`
+	EmailVerified           bool         `db:"email_verified" json:"email_verified"`
+	EmailVerifiedAt         *time.Time   `db:"email_verified_at" json:"email_verified_at,omitempty"`
 	PasswordResetTokenID    *string      `db:"password_reset_token_id" json:"-"`
 	AuthProvider            AuthProvider `db:"auth_provider" json:"auth_provider"`
 	ProviderUserID          *string      `db:"provider_user_id" json:"-"`
@@ -73,37 +73,37 @@ type CollectionFile struct {
 
 // Document represents a parsed document linked to an uploaded file.
 type Document struct {
-	ID               uuid.UUID          `db:"id" json:"id"`
-	TenantID         uuid.UUID          `db:"tenant_id" json:"tenant_id"`
-	CollectionID     uuid.UUID          `db:"collection_id" json:"collection_id"`
-	FileID           uuid.UUID          `db:"file_id" json:"file_id"`
-	Name             string             `db:"name" json:"name"`
-	DocumentType     string             `db:"document_type" json:"document_type"`
-	ParserModel      string             `db:"parser_model" json:"parser_model"`
-	ParserPrompt     string             `db:"parser_prompt" json:"parser_prompt"`
-	StructuredData   json.RawMessage    `db:"structured_data" json:"structured_data" swaggertype:"object"`
-	ConfidenceScores json.RawMessage    `db:"confidence_scores" json:"confidence_scores" swaggertype:"object"`
-	ParsingStatus    ParsingStatus      `db:"parsing_status" json:"parsing_status"`
-	ParsingError     string             `db:"parsing_error" json:"parsing_error"`
-	ParsedAt         *time.Time         `db:"parsed_at" json:"parsed_at"`
-	ReviewStatus     ReviewStatus       `db:"review_status" json:"review_status"`
-	ReviewedBy       *uuid.UUID         `db:"reviewed_by" json:"reviewed_by"`
-	ReviewedAt       *time.Time         `db:"reviewed_at" json:"reviewed_at"`
-	ReviewerNotes    string             `db:"reviewer_notes" json:"reviewer_notes"`
-	ValidationStatus      ValidationStatus     `db:"validation_status" json:"validation_status"`
-	ValidationResults     json.RawMessage      `db:"validation_results" json:"validation_results" swaggertype:"object"`
-	ReconciliationStatus  ReconciliationStatus `db:"reconciliation_status" json:"reconciliation_status"`
-	ParseMode             ParseMode            `db:"parse_mode" json:"parse_mode"`
-	FieldProvenance       json.RawMessage      `db:"field_provenance" json:"field_provenance" swaggertype:"object"`
-	SecondaryParserModel  string               `db:"secondary_parser_model" json:"secondary_parser_model"`
-	ParseAttempts         int                  `db:"parse_attempts" json:"parse_attempts"`
-	RetryAfter            *time.Time           `db:"retry_after" json:"retry_after,omitempty"`
-	AssignedTo            *uuid.UUID           `db:"assigned_to" json:"assigned_to"`
-	AssignedAt            *time.Time           `db:"assigned_at" json:"assigned_at,omitempty"`
-	AssignedBy            *uuid.UUID           `db:"assigned_by" json:"assigned_by"`
-	CreatedBy             uuid.UUID            `db:"created_by" json:"created_by"`
-	CreatedAt             time.Time            `db:"created_at" json:"created_at"`
-	UpdatedAt             time.Time            `db:"updated_at" json:"updated_at"`
+	ID                   uuid.UUID            `db:"id" json:"id"`
+	TenantID             uuid.UUID            `db:"tenant_id" json:"tenant_id"`
+	CollectionID         uuid.UUID            `db:"collection_id" json:"collection_id"`
+	FileID               uuid.UUID            `db:"file_id" json:"file_id"`
+	Name                 string               `db:"name" json:"name"`
+	DocumentType         string               `db:"document_type" json:"document_type"`
+	ParserModel          string               `db:"parser_model" json:"parser_model"`
+	ParserPrompt         string               `db:"parser_prompt" json:"parser_prompt"`
+	StructuredData       json.RawMessage      `db:"structured_data" json:"structured_data" swaggertype:"object"`
+	ConfidenceScores     json.RawMessage      `db:"confidence_scores" json:"confidence_scores" swaggertype:"object"`
+	ParsingStatus        ParsingStatus        `db:"parsing_status" json:"parsing_status"`
+	ParsingError         string               `db:"parsing_error" json:"parsing_error"`
+	ParsedAt             *time.Time           `db:"parsed_at" json:"parsed_at"`
+	ReviewStatus         ReviewStatus         `db:"review_status" json:"review_status"`
+	ReviewedBy           *uuid.UUID           `db:"reviewed_by" json:"reviewed_by"`
+	ReviewedAt           *time.Time           `db:"reviewed_at" json:"reviewed_at"`
+	ReviewerNotes        string               `db:"reviewer_notes" json:"reviewer_notes"`
+	ValidationStatus     ValidationStatus     `db:"validation_status" json:"validation_status"`
+	ValidationResults    json.RawMessage      `db:"validation_results" json:"validation_results" swaggertype:"object"`
+	ReconciliationStatus ReconciliationStatus `db:"reconciliation_status" json:"reconciliation_status"`
+	ParseMode            ParseMode            `db:"parse_mode" json:"parse_mode"`
+	FieldProvenance      json.RawMessage      `db:"field_provenance" json:"field_provenance" swaggertype:"object"`
+	SecondaryParserModel string               `db:"secondary_parser_model" json:"secondary_parser_model"`
+	ParseAttempts        int                  `db:"parse_attempts" json:"parse_attempts"`
+	RetryAfter           *time.Time           `db:"retry_after" json:"retry_after,omitempty"`
+	AssignedTo           *uuid.UUID           `db:"assigned_to" json:"assigned_to"`
+	AssignedAt           *time.Time           `db:"assigned_at" json:"assigned_at,omitempty"`
+	AssignedBy           *uuid.UUID           `db:"assigned_by" json:"assigned_by"`
+	CreatedBy            uuid.UUID            `db:"created_by" json:"created_by"`
+	CreatedAt            time.Time            `db:"created_at" json:"created_at"`
+	UpdatedAt            time.Time            `db:"updated_at" json:"updated_at"`
 }
 
 // DocumentTag represents a searchable tag on a document.
@@ -353,25 +353,25 @@ type SummaryStatusUpdate struct {
 
 // DocumentAuditEntry represents an append-only audit log entry for document mutations.
 type DocumentAuditEntry struct {
-	ID         uuid.UUID        `db:"id" json:"id"`
-	TenantID   uuid.UUID        `db:"tenant_id" json:"tenant_id"`
-	DocumentID uuid.UUID        `db:"document_id" json:"document_id"`
-	UserID     *uuid.UUID       `db:"user_id" json:"user_id,omitempty"`
-	Action     string           `db:"action" json:"action"`
-	Changes    json.RawMessage  `db:"changes" json:"changes"`
-	CreatedAt  time.Time        `db:"created_at" json:"created_at"`
+	ID         uuid.UUID       `db:"id" json:"id"`
+	TenantID   uuid.UUID       `db:"tenant_id" json:"tenant_id"`
+	DocumentID uuid.UUID       `db:"document_id" json:"document_id"`
+	UserID     *uuid.UUID      `db:"user_id" json:"user_id,omitempty"`
+	Action     string          `db:"action" json:"action"`
+	Changes    json.RawMessage `db:"changes" json:"changes"`
+	CreatedAt  time.Time       `db:"created_at" json:"created_at"`
 }
 
 // ServiceAccount represents a non-human API identity for programmatic access.
 type ServiceAccount struct {
-	ID           uuid.UUID `db:"id" json:"id"`
-	TenantID     uuid.UUID `db:"tenant_id" json:"tenant_id"`
-	Name         string    `db:"name" json:"name"`
-	Description  string    `db:"description" json:"description"`
-	APIKeyPrefix string    `db:"api_key_prefix" json:"api_key_prefix"` // first 8 chars of the key, for identification
-	APIKeyHash   string    `db:"api_key_hash" json:"-"`
-	IsActive     bool      `db:"is_active" json:"is_active"`
-	CreatedBy    uuid.UUID `db:"created_by" json:"created_by"`
+	ID           uuid.UUID  `db:"id" json:"id"`
+	TenantID     uuid.UUID  `db:"tenant_id" json:"tenant_id"`
+	Name         string     `db:"name" json:"name"`
+	Description  string     `db:"description" json:"description"`
+	APIKeyPrefix string     `db:"api_key_prefix" json:"api_key_prefix"` // first 8 chars of the key, for identification
+	APIKeyHash   string     `db:"api_key_hash" json:"-"`
+	IsActive     bool       `db:"is_active" json:"is_active"`
+	CreatedBy    uuid.UUID  `db:"created_by" json:"created_by"`
 	LastUsedAt   *time.Time `db:"last_used_at" json:"last_used_at,omitempty"`
 	ExpiresAt    *time.Time `db:"expires_at" json:"expires_at,omitempty"`
 	CreatedAt    time.Time  `db:"created_at" json:"created_at"`
@@ -386,6 +386,7 @@ type ServiceAccountPermission struct {
 	TenantID         uuid.UUID            `db:"tenant_id" json:"tenant_id"`
 	Permission       CollectionPermission `db:"permission" json:"permission"`
 	GrantedBy        uuid.UUID            `db:"granted_by" json:"granted_by"`
+	CreatedAt        time.Time            `db:"created_at" json:"created_at"`
 }
 
 // FileMeta stores metadata about an uploaded file.

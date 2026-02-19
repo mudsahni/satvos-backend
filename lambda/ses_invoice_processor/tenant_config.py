@@ -3,7 +3,7 @@
 import logging
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import boto3
 
@@ -39,6 +39,7 @@ class TenantConfig:
     tenant_slug: str
     service_api_key: str
     enabled: bool
+    allowed_senders: tuple[str, ...] = ()  # frozen → tuple not list
     api_base_url: str | None = None
 
     @classmethod
@@ -48,8 +49,50 @@ class TenantConfig:
             tenant_slug=item["tenant_slug"],
             service_api_key=item["service_api_key"],
             enabled=item.get("enabled", True),
+            allowed_senders=tuple(item.get("allowed_senders", [])),
             api_base_url=item.get("api_base_url") or None,
         )
+
+
+# --- Sender allowlist helpers ---
+
+_EMAIL_ADDR_RE = re.compile(r"<([^>]+)>")
+
+
+def extract_email_address(sender: str) -> str:
+    """Extract bare email from a From header value.
+
+    "Mudit Sahni <muditsahni@msn.com>" → "muditsahni@msn.com"
+    "plain@example.com" → "plain@example.com"
+    """
+    m = _EMAIL_ADDR_RE.search(sender)
+    if m:
+        return m.group(1).strip().lower()
+    return sender.strip().lower()
+
+
+def is_sender_allowed(sender_email: str, allowed_senders: tuple[str, ...] | list[str]) -> bool:
+    """Check if a sender email is permitted by the allowlist.
+
+    Rules:
+    - Empty list → reject all (safe default)
+    - "*" in list → accept all
+    - Entry starting with "@" → domain match (case-insensitive)
+    - Otherwise → exact email match (case-insensitive)
+    """
+    if not allowed_senders:
+        return False
+    email_lower = sender_email.lower()
+    for entry in allowed_senders:
+        entry = entry.strip()
+        if entry == "*":
+            return True
+        if entry.startswith("@"):
+            if email_lower.endswith(entry.lower()):
+                return True
+        elif email_lower == entry.lower():
+            return True
+    return False
 
 
 class TenantConfigStore:

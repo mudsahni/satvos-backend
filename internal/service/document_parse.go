@@ -24,9 +24,11 @@ func (s *documentService) CreateAndParse(ctx context.Context, input *CreateDocum
 		return nil, err
 	}
 
-	// Check and increment quota (no-op for unlimited users)
-	if err := s.userRepo.CheckAndIncrementQuota(ctx, input.TenantID, input.CreatedBy); err != nil {
-		return nil, err
+	// Check and increment quota (no-op for unlimited users, skip for service accounts)
+	if input.Role != domain.RoleService {
+		if err := s.userRepo.CheckAndIncrementQuota(ctx, input.TenantID, input.CreatedBy); err != nil {
+			return nil, err
+		}
 	}
 
 	// Verify the file exists

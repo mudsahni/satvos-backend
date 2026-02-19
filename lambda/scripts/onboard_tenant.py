@@ -34,6 +34,7 @@ import click
 @click.option("--s3-bucket", default="satvos-uploads", help="S3 bucket for email storage")
 @click.option("--dynamodb-table", default="satvos-email-processor-tenants", help="DynamoDB table name")
 @click.option("--api-base-url", default=None, help="Custom API base URL for this tenant (optional)")
+@click.option("--allowed-senders", required=True, help="Comma-separated list of allowed sender emails/domains (e.g. '@company.com,user@gmail.com,*')")
 @click.option("--dry-run", is_flag=True, help="Show what would be done without making changes")
 def onboard_tenant(
     tenant_slug,
@@ -44,6 +45,7 @@ def onboard_tenant(
     s3_bucket,
     dynamodb_table,
     api_base_url,
+    allowed_senders,
     dry_run,
 ):
     """Onboard a new tenant for the SES invoice processor."""
@@ -109,10 +111,12 @@ def onboard_tenant(
     click.echo(f"\nStep 3: DynamoDB Tenant Config")
     click.echo("-" * 40)
     now = datetime.now(timezone.utc).isoformat()
+    sender_list = [s.strip() for s in allowed_senders.split(",") if s.strip()]
     item = {
         "tenant_slug": tenant_slug,
         "service_api_key": service_api_key,
         "enabled": True,
+        "allowed_senders": sender_list,
         "created_at": now,
         "updated_at": now,
     }
@@ -124,6 +128,7 @@ def onboard_tenant(
         click.echo(f"    tenant_slug: {tenant_slug}")
         click.echo(f"    service_api_key: {service_api_key[:10]}...")
         click.echo(f"    enabled: True")
+        click.echo(f"    allowed_senders: {sender_list}")
         if api_base_url:
             click.echo(f"    api_base_url: {api_base_url}")
     else:
