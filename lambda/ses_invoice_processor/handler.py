@@ -13,7 +13,7 @@ from .exceptions import (
     TenantDisabledError,
 )
 from .satvos_client import SatvosClient
-from .tenant_config import TenantConfigStore, extract_tenant_slug
+from .tenant_config import TenantConfigStore, extract_email_address, extract_tenant_slug, is_sender_allowed
 
 logger = logging.getLogger("ses_invoice_processor")
 
@@ -101,6 +101,12 @@ def _process_event(event: dict, config: Config) -> dict:
         len(parsed.attachments),
         parsed.sender,
     )
+
+    # Check sender against allowlist
+    sender_email = extract_email_address(parsed.sender)
+    if not is_sender_allowed(sender_email, tenant_config.allowed_senders):
+        logger.warning("Sender %s not in allowed_senders for tenant %s", sender_email, tenant_slug)
+        return {"statusCode": 200, "body": f"Rejected: sender not allowed for tenant '{tenant_slug}'"}
 
     # Authenticate and process
     api_base_url = tenant_config.api_base_url or config.default_api_base_url

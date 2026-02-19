@@ -29,7 +29,10 @@
       "Bash(source:*)",
       "Bash(pip install:*)",
       "Bash(PYTHONPATH=. python -m pytest:*)",
-      "Bash(make test-unit:*)"
+      "Bash(make test-unit:*)",
+      "Bash(python -m pytest:*)",
+      "Bash(.venv/bin/python -m pytest tests/test_tenant_config.py -v)",
+      "Bash(.venv/bin/python -m pytest:*)"
     ]
   }
 }

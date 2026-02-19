@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 
 	"satvos/internal/config"
 	"satvos/internal/domain"
@@ -139,8 +138,8 @@ func run() error {
 		Validator:   validationEngine,
 	})
 
-	// Auto-create free tier tenant if it doesn't exist
-	ensureFreeTierTenant(tenantRepo, cfg.FreeTier.TenantSlug, serviceAccountSvc)
+	// Auto-create free tier tenant if it doesn't exist (no SA — free tier is UI only)
+	ensureFreeTierTenant(tenantRepo, cfg.FreeTier.TenantSlug)
 
 	// Initialize email sender
 	emailSender, err := initEmailSender(cfg)
@@ -308,11 +307,12 @@ func initSocialAuth(
 }
 
 // ensureFreeTierTenant auto-creates the free tier tenant if it doesn't exist.
-func ensureFreeTierTenant(tenantRepo port.TenantRepository, slug string, saSvc service.ServiceAccountService) {
-	tenant, err := tenantRepo.GetBySlug(context.Background(), slug)
+// No service account is created — free tier is UI-only, no email processing.
+func ensureFreeTierTenant(tenantRepo port.TenantRepository, slug string) {
+	_, err := tenantRepo.GetBySlug(context.Background(), slug)
 	if err != nil {
 		log.Printf("Free tier tenant '%s' not found, creating...", slug)
-		tenant = &domain.Tenant{
+		tenant := &domain.Tenant{
 			Name:     "SATVOS Free Tier",
 			Slug:     slug,
 			IsActive: true,
@@ -324,18 +324,6 @@ func ensureFreeTierTenant(tenantRepo port.TenantRepository, slug string, saSvc s
 		log.Printf("Free tier tenant '%s' created with ID %s", slug, tenant.ID)
 	} else {
 		log.Printf("Free tier tenant '%s' ready", slug)
-	}
-
-	// Ensure inbound_email SA exists (idempotent)
-	if saSvc != nil {
-		// createdBy=uuid.Nil signals system-created (no FK constraint on created_by)
-		apiKey, saErr := saSvc.EnsureInboundEmailServiceAccount(context.Background(), tenant.ID, uuid.Nil)
-		if saErr != nil {
-			log.Printf("WARNING: failed to ensure inbound_email SA: %v", saErr)
-		} else if apiKey != "" {
-			log.Printf("*** INBOUND EMAIL API KEY for tenant '%s': %s...%s ***", slug, apiKey[:11], apiKey[len(apiKey)-4:])
-			log.Printf("*** Copy this key to DynamoDB — it will not be shown again ***")
-		}
 	}
 }
 
