@@ -42,6 +42,11 @@ class TestAuthenticateWithAPIKey:
         with pytest.raises(AuthenticationError, match="Invalid API key format"):
             client.authenticate_with_api_key("")
 
+    def test_too_short_key(self):
+        client = SatvosClient(BASE_URL)
+        with pytest.raises(AuthenticationError, match="Invalid API key format"):
+            client.authenticate_with_api_key("sk_tooshort")
+
     def test_not_authenticated_raises(self):
         client = SatvosClient(BASE_URL)
         with pytest.raises(AuthenticationError, match="Not authenticated"):
@@ -61,39 +66,6 @@ class TestCreateCollection:
         client = _make_authenticated_client()
         coll_id = client.create_collection("Test Collection", "A test")
         assert coll_id == "coll-abc"
-
-    @responses.activate
-    def test_success_with_owner_email(self):
-        responses.add(
-            responses.POST,
-            f"{BASE_URL}/collections",
-            json={"success": True, "data": {"id": "coll-own"}},
-            status=201,
-        )
-
-        client = _make_authenticated_client()
-        coll_id = client.create_collection("Test", "desc", owner_email="owner@co.com")
-        assert coll_id == "coll-own"
-
-        # Verify owner_email was sent in the request body
-        body = json.loads(responses.calls[0].request.body)
-        assert body["owner_email"] == "owner@co.com"
-
-    @responses.activate
-    def test_no_owner_email_omits_field(self):
-        responses.add(
-            responses.POST,
-            f"{BASE_URL}/collections",
-            json={"success": True, "data": {"id": "coll-no"}},
-            status=201,
-        )
-
-        client = _make_authenticated_client()
-        client.create_collection("Test", "desc")
-
-        # Verify owner_email is NOT in the request body when not provided
-        body = json.loads(responses.calls[0].request.body)
-        assert "owner_email" not in body
 
     @responses.activate
     def test_failure(self):
@@ -239,7 +211,7 @@ class TestProcessAttachments:
         assert result.documents_failed == []
 
     @responses.activate
-    def test_sender_email_in_collection_description_and_owner_email(self):
+    def test_sender_email_in_collection_description(self):
         responses.add(
             responses.POST,
             f"{BASE_URL}/collections",
@@ -267,11 +239,11 @@ class TestProcessAttachments:
         client = _make_authenticated_client()
         client.process_attachments("Test Co", [_make_attachment()], sender_email="sender@test.com")
 
-        # Verify collection description includes sender and owner_email is passed
+        # Verify collection description includes sender email
         create_coll_call = responses.calls[0]  # create_collection=0
         body = json.loads(create_coll_call.request.body)
         assert "sender@test.com" in body["description"]
-        assert body["owner_email"] == "sender@test.com"
+        assert "owner_email" not in body
 
     @responses.activate
     def test_no_sender_email_fallback(self):
@@ -302,11 +274,10 @@ class TestProcessAttachments:
         client = _make_authenticated_client()
         client.process_attachments("Test Co", [_make_attachment()])
 
-        # Verify fallback description (no sender_email) and no owner_email
+        # Verify fallback description (no sender_email)
         create_coll_call = responses.calls[0]
         body = json.loads(create_coll_call.request.body)
         assert "Auto-imported from email for Test Co" in body["description"]
-        assert "owner_email" not in body
 
     @responses.activate
     def test_partial_upload_failure(self):

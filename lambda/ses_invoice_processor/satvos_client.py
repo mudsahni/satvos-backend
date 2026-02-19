@@ -36,9 +36,9 @@ class SatvosClient:
         Sets the Authorization header for all subsequent requests.
         Raises AuthenticationError if the key format is invalid.
         """
-        if not api_key or not api_key.startswith("sk_"):
+        if not api_key or not api_key.startswith("sk_") or len(api_key) < 67:
             raise AuthenticationError(
-                "Invalid API key format: must start with 'sk_'",
+                "Invalid API key format: must start with 'sk_' and be at least 67 characters",
                 status_code=None,
                 response_body=None,
             )
@@ -50,18 +50,13 @@ class SatvosClient:
         if not self._authenticated:
             raise AuthenticationError("Not authenticated — call authenticate_with_api_key() first")
 
-    def create_collection(self, name: str, description: str, *, owner_email: str | None = None) -> str:
+    def create_collection(self, name: str, description: str) -> str:
         """Create a collection and return its ID.
-
-        If owner_email is provided, the backend will look up the user by email
-        within the tenant and grant them owner permission on the collection.
 
         Raises SatvosAPIError on failure.
         """
         self._ensure_auth()
         body: dict = {"name": name, "description": description}
-        if owner_email:
-            body["owner_email"] = owner_email
         resp = self._session.post(
             f"{self._base_url}/collections",
             json=body,
@@ -137,7 +132,7 @@ class SatvosClient:
         else:
             description = f"Auto-imported from email for {company_name}"
 
-        collection_id = self.create_collection(collection_name, description, owner_email=sender_email)
+        collection_id = self.create_collection(collection_name, description)
         logger.info("Created collection %s: %s", collection_id, collection_name)
 
         result = ProcessingResult(
