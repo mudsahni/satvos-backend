@@ -1190,3 +1190,45 @@ func TestCollectionService_RemovePermission_SABlocked(t *testing.T) {
 
 	assert.ErrorIs(t, err, domain.ErrInsufficientRole)
 }
+
+func TestCollectionService_Create_ServiceAccount_OwnerEmailGrantsPermission(t *testing.T) {
+	collRepo := new(mocks.MockCollectionRepo)
+	permRepo := new(mocks.MockCollectionPermissionRepo)
+	fileRepo := new(mocks.MockCollectionFileRepo)
+	fileSvc := new(mocks.MockFileService)
+	userRepo := new(mocks.MockUserRepo)
+	saPermRepo := new(mocks.MockServiceAccountPermissionRepo)
+	svc := service.NewCollectionService(collRepo, permRepo, fileRepo, fileSvc, userRepo, saPermRepo)
+
+	tenantID := uuid.New()
+	saID := uuid.New()
+	ownerUserID := uuid.New()
+	ownerEmail := "owner@example.com"
+
+	collRepo.On("Create", mock.Anything, mock.AnythingOfType("*domain.Collection")).Return(nil)
+	saPermRepo.On("Upsert", mock.Anything, mock.AnythingOfType("*domain.ServiceAccountPermission")).Return(nil)
+	userRepo.On("GetByEmail", mock.Anything, tenantID, ownerEmail).
+		Return(&domain.User{ID: ownerUserID, TenantID: tenantID, Email: ownerEmail}, nil)
+	permRepo.On("Upsert", mock.Anything, mock.AnythingOfType("*domain.CollectionPermissionEntry")).Return(nil)
+
+	result, err := svc.Create(context.Background(), &service.CreateCollectionInput{
+		TenantID:   tenantID,
+		CreatedBy:  saID,
+		Role:       domain.RoleService,
+		Name:       "SA Collection with Owner",
+		OwnerEmail: ownerEmail,
+	})
+
+	assert.NoError(t, err)
+	assert.NotNil(t, result)
+
+	// SA owner permission via service_account_permissions
+	saPermRepo.AssertNumberOfCalls(t, "Upsert", 1)
+
+	// Human owner permission via collection_permissions (from owner_email)
+	permRepo.AssertNumberOfCalls(t, "Upsert", 1)
+	emailPerm := permRepo.Calls[0].Arguments.Get(1).(*domain.CollectionPermissionEntry)
+	assert.Equal(t, ownerUserID, emailPerm.UserID)
+	assert.Equal(t, domain.CollectionPermOwner, emailPerm.Permission)
+	assert.Equal(t, saID, emailPerm.GrantedBy)
+}
