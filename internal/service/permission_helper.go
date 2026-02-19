@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"github.com/google/uuid"
 
@@ -42,8 +43,10 @@ func RequireCollectionPerm(ctx context.Context, permRepo port.CollectionPermissi
 func ServiceAccountCollectionPerm(ctx context.Context, saPermRepo port.ServiceAccountPermissionRepository, collectionID, serviceAccountID uuid.UUID) domain.CollectionPermission {
 	perm, err := saPermRepo.GetByAccountAndCollection(ctx, serviceAccountID, collectionID)
 	if err != nil {
+		log.Printf("ServiceAccountCollectionPerm: SA %s has no permission on collection %s: %v", serviceAccountID, collectionID, err)
 		return ""
 	}
+	log.Printf("ServiceAccountCollectionPerm: SA %s has %s on collection %s", serviceAccountID, perm.Permission, collectionID)
 	return perm.Permission
 }
 
