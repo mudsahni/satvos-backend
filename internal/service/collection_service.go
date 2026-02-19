@@ -188,29 +188,31 @@ func (s *collectionService) Create(ctx context.Context, input *CreateCollectionI
 				collection.ID, err)
 			return nil, fmt.Errorf("assigning owner permission: %w", err)
 		}
+	}
 
-		// If owner_email is provided, look up the user and grant them owner permission too.
-		// This is non-blocking: if the user doesn't exist or the upsert fails, we log and continue.
-		if input.OwnerEmail != "" {
-			ownerUser, lookupErr := s.userRepo.GetByEmail(ctx, input.TenantID, input.OwnerEmail)
-			if lookupErr != nil {
-				log.Printf("collectionService.Create: owner_email %q not found in tenant %s, skipping: %v",
-					input.OwnerEmail, input.TenantID, lookupErr)
-			} else if ownerUser.ID != input.CreatedBy {
-				emailOwnerPerm := &domain.CollectionPermissionEntry{
-					CollectionID: collection.ID,
-					TenantID:     input.TenantID,
-					UserID:       ownerUser.ID,
-					Permission:   domain.CollectionPermOwner,
-					GrantedBy:    input.CreatedBy,
-				}
-				if upsertErr := s.permRepo.Upsert(ctx, emailOwnerPerm); upsertErr != nil {
-					log.Printf("collectionService.Create: failed to grant owner permission to %s for collection %s: %v",
-						ownerUser.ID, collection.ID, upsertErr)
-				} else {
-					log.Printf("collectionService.Create: granted owner permission to user %s (email: %s) for collection %s",
-						ownerUser.ID, input.OwnerEmail, collection.ID)
-				}
+	// If owner_email is provided, look up the user and grant them owner permission too.
+	// This runs for both SA and regular user paths so that SA-created collections
+	// become visible to the human user identified by owner_email.
+	// This is non-blocking: if the user doesn't exist or the upsert fails, we log and continue.
+	if input.OwnerEmail != "" {
+		ownerUser, lookupErr := s.userRepo.GetByEmail(ctx, input.TenantID, input.OwnerEmail)
+		if lookupErr != nil {
+			log.Printf("collectionService.Create: owner_email %q not found in tenant %s, skipping: %v",
+				input.OwnerEmail, input.TenantID, lookupErr)
+		} else if ownerUser.ID != input.CreatedBy {
+			emailOwnerPerm := &domain.CollectionPermissionEntry{
+				CollectionID: collection.ID,
+				TenantID:     input.TenantID,
+				UserID:       ownerUser.ID,
+				Permission:   domain.CollectionPermOwner,
+				GrantedBy:    input.CreatedBy,
+			}
+			if upsertErr := s.permRepo.Upsert(ctx, emailOwnerPerm); upsertErr != nil {
+				log.Printf("collectionService.Create: failed to grant owner permission to %s for collection %s: %v",
+					ownerUser.ID, collection.ID, upsertErr)
+			} else {
+				log.Printf("collectionService.Create: granted owner permission to user %s (email: %s) for collection %s",
+					ownerUser.ID, input.OwnerEmail, collection.ID)
 			}
 		}
 	}

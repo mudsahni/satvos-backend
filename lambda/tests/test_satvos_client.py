@@ -82,6 +82,38 @@ class TestCreateCollection:
         assert exc_info.value.status_code == 500
 
 
+    @responses.activate
+    def test_owner_email_included_when_provided(self):
+        responses.add(
+            responses.POST,
+            f"{BASE_URL}/collections",
+            json={"success": True, "data": {"id": "coll-oe"}},
+            status=201,
+        )
+
+        client = _make_authenticated_client()
+        coll_id = client.create_collection("Test", "desc", owner_email="user@example.com")
+        assert coll_id == "coll-oe"
+
+        body = json.loads(responses.calls[0].request.body)
+        assert body["owner_email"] == "user@example.com"
+
+    @responses.activate
+    def test_owner_email_omitted_when_not_provided(self):
+        responses.add(
+            responses.POST,
+            f"{BASE_URL}/collections",
+            json={"success": True, "data": {"id": "coll-no"}},
+            status=201,
+        )
+
+        client = _make_authenticated_client()
+        client.create_collection("Test", "desc")
+
+        body = json.loads(responses.calls[0].request.body)
+        assert "owner_email" not in body
+
+
 class TestBatchUploadFiles:
     @responses.activate
     def test_all_success(self):
@@ -243,7 +275,7 @@ class TestProcessAttachments:
         create_coll_call = responses.calls[0]  # create_collection=0
         body = json.loads(create_coll_call.request.body)
         assert "sender@test.com" in body["description"]
-        assert "owner_email" not in body
+        assert body["owner_email"] == "sender@test.com"
 
     @responses.activate
     def test_no_sender_email_fallback(self):
