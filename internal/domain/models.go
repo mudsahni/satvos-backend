@@ -386,6 +386,7 @@ type ServiceAccountPermission struct {
 	TenantID         uuid.UUID            `db:"tenant_id" json:"tenant_id"`
 	Permission       CollectionPermission `db:"permission" json:"permission"`
 	GrantedBy        uuid.UUID            `db:"granted_by" json:"granted_by"`
+	CreatedAt        time.Time            `db:"created_at" json:"created_at"`
 }
 
 // FileMeta stores metadata about an uploaded file.
