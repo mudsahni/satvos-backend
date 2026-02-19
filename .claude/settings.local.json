@@ -28,7 +28,8 @@
       "Bash(make test:*)",
       "Bash(source:*)",
       "Bash(pip install:*)",
-      "Bash(PYTHONPATH=. python -m pytest:*)"
+      "Bash(PYTHONPATH=. python -m pytest:*)",
+      "Bash(make test-unit:*)"
     ]
   }
 }

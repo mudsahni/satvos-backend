@@ -117,9 +117,14 @@ func (s *collectionService) effectivePermission(ctx context.Context, collectionI
 func (s *collectionService) requirePermission(ctx context.Context, collectionID, userID uuid.UUID, role domain.UserRole, minLevel domain.CollectionPermission) error {
 	if role == domain.RoleService {
 		if s.saPermRepo == nil {
+			log.Printf("collectionService.requirePermission: RoleService but saPermRepo is nil — denying access for %s on collection %s", userID, collectionID)
 			return domain.ErrCollectionPermDenied
 		}
-		return RequireServiceAccountCollectionPerm(ctx, s.saPermRepo, collectionID, userID, minLevel)
+		err := RequireServiceAccountCollectionPerm(ctx, s.saPermRepo, collectionID, userID, minLevel)
+		if err != nil {
+			log.Printf("collectionService.requirePermission: SA %s denied %s on collection %s: %v", userID, minLevel, collectionID, err)
+		}
+		return err
 	}
 	return RequireCollectionPerm(ctx, s.permRepo, collectionID, userID, role, minLevel)
 }
