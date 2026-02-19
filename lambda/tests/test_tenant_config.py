@@ -28,12 +28,14 @@ def _create_table(dynamodb):
     )
 
 
+TEST_API_KEY = "sk_" + "a" * 64
+
+
 def _put_tenant(dynamodb, tenant_slug="passpl", enabled=True, api_base_url=None):
     """Insert a tenant config item."""
     item = {
         "tenant_slug": tenant_slug,
-        "service_email": f"svc@{tenant_slug}.satvos.com",
-        "service_password": "secret123",
+        "service_api_key": TEST_API_KEY,
         "enabled": enabled,
         "created_at": "2025-01-01T00:00:00Z",
         "updated_at": "2025-01-01T00:00:00Z",
@@ -81,23 +83,20 @@ class TestTenantConfigFromDynamoDBItem:
     def test_full_item(self):
         item = {
             "tenant_slug": "passpl",
-            "service_email": "svc@passpl.com",
-            "service_password": "pass",
+            "service_api_key": TEST_API_KEY,
             "enabled": True,
             "api_base_url": "https://custom.api.com/api/v1",
         }
         config = TenantConfig.from_dynamodb_item(item)
         assert config.tenant_slug == "passpl"
-        assert config.service_email == "svc@passpl.com"
-        assert config.service_password == "pass"
+        assert config.service_api_key == TEST_API_KEY
         assert config.enabled is True
         assert config.api_base_url == "https://custom.api.com/api/v1"
 
     def test_minimal_item(self):
         item = {
             "tenant_slug": "test",
-            "service_email": "svc@test.com",
-            "service_password": "pass",
+            "service_api_key": TEST_API_KEY,
         }
         config = TenantConfig.from_dynamodb_item(item)
         assert config.enabled is True  # default
@@ -106,8 +105,7 @@ class TestTenantConfigFromDynamoDBItem:
     def test_empty_api_base_url_becomes_none(self):
         item = {
             "tenant_slug": "test",
-            "service_email": "svc@test.com",
-            "service_password": "pass",
+            "service_api_key": TEST_API_KEY,
             "api_base_url": "",
         }
         config = TenantConfig.from_dynamodb_item(item)
@@ -127,7 +125,7 @@ class TestTenantConfigStore:
 
         assert config is not None
         assert config.tenant_slug == "passpl"
-        assert config.service_email == "svc@passpl.satvos.com"
+        assert config.service_api_key == TEST_API_KEY
 
     @mock_aws
     def test_not_found(self):

@@ -80,6 +80,7 @@ type collectionService struct {
 	fileRepo       port.CollectionFileRepository
 	fileSvc        FileService
 	userRepo       port.UserRepository
+	saPermRepo     port.ServiceAccountPermissionRepository // optional, nil-safe
 }
 
 // NewCollectionService creates a new CollectionService implementation.
@@ -89,6 +90,7 @@ func NewCollectionService(
 	fileRepo port.CollectionFileRepository,
 	fileSvc FileService,
 	userRepo port.UserRepository,
+	saPermRepo port.ServiceAccountPermissionRepository,
 ) CollectionService {
 	return &collectionService{
 		collectionRepo: collectionRepo,
@@ -96,22 +98,41 @@ func NewCollectionService(
 		fileRepo:       fileRepo,
 		fileSvc:        fileSvc,
 		userRepo:       userRepo,
+		saPermRepo:     saPermRepo,
 	}
 }
 
-// effectivePermission delegates to the shared EffectiveCollectionPerm helper.
+// effectivePermission delegates to the shared permission helpers, branching for service accounts.
 func (s *collectionService) effectivePermission(ctx context.Context, collectionID, userID uuid.UUID, role domain.UserRole) domain.CollectionPermission {
+	if role == domain.RoleService {
+		if s.saPermRepo == nil {
+			return ""
+		}
+		return ServiceAccountCollectionPerm(ctx, s.saPermRepo, collectionID, userID)
+	}
 	return EffectiveCollectionPerm(ctx, s.permRepo, collectionID, userID, role)
 }
 
-// requirePermission delegates to the shared RequireCollectionPerm helper.
+// requirePermission delegates to the shared permission helpers, branching for service accounts.
 func (s *collectionService) requirePermission(ctx context.Context, collectionID, userID uuid.UUID, role domain.UserRole, minLevel domain.CollectionPermission) error {
+	if role == domain.RoleService {
+		if s.saPermRepo == nil {
+			return domain.ErrCollectionPermDenied
+		}
+		return RequireServiceAccountCollectionPerm(ctx, s.saPermRepo, collectionID, userID, minLevel)
+	}
 	return RequireCollectionPerm(ctx, s.permRepo, collectionID, userID, role, minLevel)
 }
 
 func (s *collectionService) Create(ctx context.Context, input *CreateCollectionInput) (*domain.Collection, error) {
-	// Viewers and service accounts cannot create collections
-	if input.Role == domain.RoleViewer || input.Role == domain.RoleService {
+	// Viewers cannot create collections.
+	// Note: RoleFree is blocked at the router level (not listed in RequireRole).
+	if input.Role == domain.RoleViewer {
+		return nil, domain.ErrInsufficientRole
+	}
+
+	// Service accounts need saPermRepo to be configured
+	if input.Role == domain.RoleService && s.saPermRepo == nil {
 		return nil, domain.ErrInsufficientRole
 	}
 
@@ -131,41 +152,60 @@ func (s *collectionService) Create(ctx context.Context, input *CreateCollectionI
 		return nil, fmt.Errorf("creating collection: %w", err)
 	}
 
-	// Auto-assign owner permission to creator
-	ownerPerm := &domain.CollectionPermissionEntry{
-		CollectionID: collection.ID,
-		TenantID:     input.TenantID,
-		UserID:       input.CreatedBy,
-		Permission:   domain.CollectionPermOwner,
-		GrantedBy:    input.CreatedBy,
-	}
-	if err := s.permRepo.Upsert(ctx, ownerPerm); err != nil {
-		log.Printf("collectionService.Create: failed to assign owner permission for collection %s: %v",
-			collection.ID, err)
-		return nil, fmt.Errorf("assigning owner permission: %w", err)
-	}
+	// Auto-assign owner permission to creator.
+	// Note: if permission upsert fails, the collection exists without an owner (no transaction).
+	// This matches the existing pattern for regular users below.
+	if input.Role == domain.RoleService {
+		// Service accounts use service_account_permissions table
+		saPerm := &domain.ServiceAccountPermission{
+			ServiceAccountID: input.CreatedBy,
+			CollectionID:     collection.ID,
+			TenantID:         input.TenantID,
+			Permission:       domain.CollectionPermOwner,
+			GrantedBy:        input.CreatedBy,
+		}
+		if err := s.saPermRepo.Upsert(ctx, saPerm); err != nil {
+			log.Printf("collectionService.Create: failed to assign SA owner permission for collection %s: %v",
+				collection.ID, err)
+			return nil, fmt.Errorf("assigning owner permission: %w", err)
+		}
+	} else {
+		// Regular users use collection_permissions table
+		ownerPerm := &domain.CollectionPermissionEntry{
+			CollectionID: collection.ID,
+			TenantID:     input.TenantID,
+			UserID:       input.CreatedBy,
+			Permission:   domain.CollectionPermOwner,
+			GrantedBy:    input.CreatedBy,
+		}
+		if err := s.permRepo.Upsert(ctx, ownerPerm); err != nil {
+			log.Printf("collectionService.Create: failed to assign owner permission for collection %s: %v",
+				collection.ID, err)
+			return nil, fmt.Errorf("assigning owner permission: %w", err)
+		}
 
-	// If owner_email is provided, look up the user and grant them owner permission too.
-	// This is non-blocking: if the user doesn't exist or the upsert fails, we log and continue.
-	if input.OwnerEmail != "" {
-		ownerUser, lookupErr := s.userRepo.GetByEmail(ctx, input.TenantID, input.OwnerEmail)
-		if lookupErr != nil {
-			log.Printf("collectionService.Create: owner_email %q not found in tenant %s, skipping: %v",
-				input.OwnerEmail, input.TenantID, lookupErr)
-		} else if ownerUser.ID != input.CreatedBy {
-			emailOwnerPerm := &domain.CollectionPermissionEntry{
-				CollectionID: collection.ID,
-				TenantID:     input.TenantID,
-				UserID:       ownerUser.ID,
-				Permission:   domain.CollectionPermOwner,
-				GrantedBy:    input.CreatedBy,
-			}
-			if upsertErr := s.permRepo.Upsert(ctx, emailOwnerPerm); upsertErr != nil {
-				log.Printf("collectionService.Create: failed to grant owner permission to %s for collection %s: %v",
-					ownerUser.ID, collection.ID, upsertErr)
-			} else {
-				log.Printf("collectionService.Create: granted owner permission to user %s (email: %s) for collection %s",
-					ownerUser.ID, input.OwnerEmail, collection.ID)
+		// If owner_email is provided, look up the user and grant them owner permission too.
+		// This is non-blocking: if the user doesn't exist or the upsert fails, we log and continue.
+		if input.OwnerEmail != "" {
+			ownerUser, lookupErr := s.userRepo.GetByEmail(ctx, input.TenantID, input.OwnerEmail)
+			if lookupErr != nil {
+				log.Printf("collectionService.Create: owner_email %q not found in tenant %s, skipping: %v",
+					input.OwnerEmail, input.TenantID, lookupErr)
+			} else if ownerUser.ID != input.CreatedBy {
+				emailOwnerPerm := &domain.CollectionPermissionEntry{
+					CollectionID: collection.ID,
+					TenantID:     input.TenantID,
+					UserID:       ownerUser.ID,
+					Permission:   domain.CollectionPermOwner,
+					GrantedBy:    input.CreatedBy,
+				}
+				if upsertErr := s.permRepo.Upsert(ctx, emailOwnerPerm); upsertErr != nil {
+					log.Printf("collectionService.Create: failed to grant owner permission to %s for collection %s: %v",
+						ownerUser.ID, collection.ID, upsertErr)
+				} else {
+					log.Printf("collectionService.Create: granted owner permission to user %s (email: %s) for collection %s",
+						ownerUser.ID, input.OwnerEmail, collection.ID)
+				}
 			}
 		}
 	}
@@ -298,6 +338,10 @@ func (s *collectionService) AddFileToCollection(ctx context.Context, tenantID, c
 }
 
 func (s *collectionService) SetPermission(ctx context.Context, input *SetPermissionInput) error {
+	// Service accounts cannot manage user-level collection permissions
+	if input.CallerRole == domain.RoleService {
+		return domain.ErrInsufficientRole
+	}
 	if !domain.ValidCollectionPermissions[input.Permission] {
 		return domain.ErrInvalidPermission
 	}
@@ -324,6 +368,10 @@ func (s *collectionService) SetPermission(ctx context.Context, input *SetPermiss
 }
 
 func (s *collectionService) ListPermissions(ctx context.Context, tenantID, collectionID, userID uuid.UUID, role domain.UserRole, offset, limit int) ([]domain.CollectionPermissionEntry, int, error) {
+	// Service accounts cannot list user-level collection permissions
+	if role == domain.RoleService {
+		return nil, 0, domain.ErrInsufficientRole
+	}
 	if err := s.requirePermission(ctx, collectionID, userID, role, domain.CollectionPermOwner); err != nil {
 		return nil, 0, err
 	}
@@ -331,6 +379,10 @@ func (s *collectionService) ListPermissions(ctx context.Context, tenantID, colle
 }
 
 func (s *collectionService) RemovePermission(ctx context.Context, tenantID, collectionID, targetUserID, userID uuid.UUID, role domain.UserRole) error {
+	// Service accounts cannot manage user-level collection permissions
+	if role == domain.RoleService {
+		return domain.ErrInsufficientRole
+	}
 	if targetUserID == userID {
 		return domain.ErrSelfPermissionRemoval
 	}
@@ -359,6 +411,14 @@ func (s *collectionService) EffectivePermissions(ctx context.Context, collection
 			result[id] = domain.CollectionPermOwner
 		}
 		return result, nil
+	}
+
+	// Service accounts: batch-query from service_account_permissions (no implicit perms)
+	if role == domain.RoleService {
+		if s.saPermRepo == nil {
+			return result, nil
+		}
+		return s.saPermRepo.GetByAccountForCollections(ctx, userID, collectionIDs)
 	}
 
 	// Manager/member/viewer: batch-query explicit permissions

@@ -49,6 +49,19 @@ func (r *serviceAccountRepo) GetByID(ctx context.Context, tenantID, saID uuid.UU
 	return &sa, nil
 }
 
+func (r *serviceAccountRepo) GetByName(ctx context.Context, tenantID uuid.UUID, name string) (*domain.ServiceAccount, error) {
+	var sa domain.ServiceAccount
+	err := r.db.GetContext(ctx, &sa,
+		"SELECT * FROM service_accounts WHERE tenant_id = $1 AND name = $2", tenantID, name)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, domain.ErrServiceAccountNotFound
+		}
+		return nil, fmt.Errorf("getting service account by name: %w", err)
+	}
+	return &sa, nil
+}
+
 func (r *serviceAccountRepo) GetByAPIKeyPrefix(ctx context.Context, prefix string) ([]domain.ServiceAccount, error) {
 	var accounts []domain.ServiceAccount
 	err := r.db.SelectContext(ctx, &accounts,
@@ -179,6 +192,35 @@ func (r *serviceAccountPermissionRepo) GetByAccountAndCollection(ctx context.Con
 		return nil, fmt.Errorf("getting service account permission: %w", err)
 	}
 	return &perm, nil
+}
+
+func (r *serviceAccountPermissionRepo) GetByAccountForCollections(ctx context.Context, saID uuid.UUID, collectionIDs []uuid.UUID) (map[uuid.UUID]domain.CollectionPermission, error) {
+	if len(collectionIDs) == 0 {
+		return make(map[uuid.UUID]domain.CollectionPermission), nil
+	}
+
+	query, args, err := sqlx.In(
+		"SELECT collection_id, permission FROM service_account_permissions WHERE service_account_id = ? AND collection_id IN (?)",
+		saID, collectionIDs,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("saPermissionRepo.GetByAccountForCollections: building query: %w", err)
+	}
+	query = r.db.Rebind(query)
+
+	var rows []struct {
+		CollectionID uuid.UUID                   `db:"collection_id"`
+		Permission   domain.CollectionPermission `db:"permission"`
+	}
+	if err := r.db.SelectContext(ctx, &rows, query, args...); err != nil {
+		return nil, fmt.Errorf("saPermissionRepo.GetByAccountForCollections: %w", err)
+	}
+
+	result := make(map[uuid.UUID]domain.CollectionPermission, len(rows))
+	for i := range rows {
+		result[rows[i].CollectionID] = rows[i].Permission
+	}
+	return result, nil
 }
 
 func (r *serviceAccountPermissionRepo) ListByAccount(ctx context.Context, tenantID, saID uuid.UUID) ([]domain.ServiceAccountPermission, error) {

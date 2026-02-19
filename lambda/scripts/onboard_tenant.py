@@ -5,13 +5,15 @@ Automates:
   - SES domain identity verification
   - SES receipt rule creation
   - DynamoDB tenant config entry
-  - (Optional) SATVOS service account creation via API
+
+The inbound_email service account is auto-created by the SATVOS backend
+when the tenant is created. Use the admin API to retrieve or rotate the key.
 
 Outputs manual steps for GoDaddy DNS records.
 
 Usage:
     pip install -r requirements-scripts.txt
-    python onboard_tenant.py --tenant-slug acme --service-email svc@acme.satvos.com
+    python onboard_tenant.py --tenant-slug acme --service-api-key sk_...
 
 Use --dry-run to see what would be done without making changes.
 """
@@ -21,36 +23,27 @@ from datetime import datetime, timezone
 
 import boto3
 import click
-import requests
 
 
 @click.command()
 @click.option("--tenant-slug", required=True, help="Tenant slug (e.g. 'passpl')")
-@click.option("--service-email", required=True, help="Service account email for the tenant")
-@click.option("--service-password", prompt=True, hide_input=True, confirmation_prompt=True, help="Service account password")
+@click.option("--service-api-key", required=True, help="Service account API key (sk_...)")
 @click.option("--aws-region", default="ap-south-1", help="AWS region for SES and DynamoDB")
 @click.option("--ses-rule-set", default="satvos-inbound", help="SES receipt rule set name")
 @click.option("--lambda-function-arn", required=True, help="ARN of the shared Lambda function")
 @click.option("--s3-bucket", default="satvos-uploads", help="S3 bucket for email storage")
 @click.option("--dynamodb-table", default="satvos-email-processor-tenants", help="DynamoDB table name")
 @click.option("--api-base-url", default=None, help="Custom API base URL for this tenant (optional)")
-@click.option("--satvos-api-url", default=None, help="SATVOS API URL for creating service account (optional)")
-@click.option("--satvos-admin-token", default=None, help="Admin bearer token for SATVOS API (optional)")
-@click.option("--skip-service-account", is_flag=True, help="Skip SATVOS service account creation")
 @click.option("--dry-run", is_flag=True, help="Show what would be done without making changes")
 def onboard_tenant(
     tenant_slug,
-    service_email,
-    service_password,
+    service_api_key,
     aws_region,
     ses_rule_set,
     lambda_function_arn,
     s3_bucket,
     dynamodb_table,
     api_base_url,
-    satvos_api_url,
-    satvos_admin_token,
-    skip_service_account,
     dry_run,
 ):
     """Onboard a new tenant for the SES invoice processor."""
@@ -118,8 +111,7 @@ def onboard_tenant(
     now = datetime.now(timezone.utc).isoformat()
     item = {
         "tenant_slug": tenant_slug,
-        "service_email": service_email,
-        "service_password": service_password,
+        "service_api_key": service_api_key,
         "enabled": True,
         "created_at": now,
         "updated_at": now,
@@ -130,7 +122,7 @@ def onboard_tenant(
     if dry_run:
         click.echo(f"  [DRY RUN] Would insert into {dynamodb_table}:")
         click.echo(f"    tenant_slug: {tenant_slug}")
-        click.echo(f"    service_email: {service_email}")
+        click.echo(f"    service_api_key: {service_api_key[:10]}...")
         click.echo(f"    enabled: True")
         if api_base_url:
             click.echo(f"    api_base_url: {api_base_url}")
@@ -140,40 +132,7 @@ def onboard_tenant(
         table.put_item(Item=item)
         click.echo(f"  Tenant config inserted into {dynamodb_table}")
 
-    # Step 4: SATVOS service account (optional)
-    click.echo(f"\nStep 4: SATVOS Service Account")
-    click.echo("-" * 40)
-    if skip_service_account:
-        click.echo("  Skipped (--skip-service-account)")
-    elif not satvos_api_url or not satvos_admin_token:
-        click.echo("  Skipped (--satvos-api-url and --satvos-admin-token required)")
-        click.echo("  Create the service account manually (see DEPLOYMENT.md)")
-    else:
-        payload = {
-            "email": service_email,
-            "password": service_password,
-            "role": "manager",
-            "first_name": "Invoice",
-            "last_name": "Processor",
-        }
-        if dry_run:
-            click.echo(f"  [DRY RUN] Would POST to {satvos_api_url}/users")
-            click.echo(f"    email: {service_email}")
-            click.echo(f"    role: manager")
-        else:
-            resp = requests.post(
-                f"{satvos_api_url}/users",
-                json=payload,
-                headers={"Authorization": f"Bearer {satvos_admin_token}"},
-                timeout=30,
-            )
-            if resp.status_code in (200, 201):
-                click.echo(f"  Service account created: {service_email}")
-            else:
-                click.echo(f"  WARNING: Service account creation failed: {resp.status_code} — {resp.text}")
-                click.echo("  You may need to create it manually.")
-
-    # Step 5: Print manual DNS steps
+    # Step 4: Print manual DNS steps
     click.echo(f"\n{'=' * 60}")
     click.echo("  MANUAL STEPS REQUIRED — GoDaddy DNS Records")
     click.echo(f"{'=' * 60}\n")

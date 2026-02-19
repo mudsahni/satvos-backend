@@ -5,7 +5,6 @@ import os
 from unittest.mock import patch
 
 import boto3
-import pytest
 import responses
 from moto import mock_aws
 
@@ -102,6 +101,9 @@ def _setup_s3(tenant_slug: str, message_id: str, email_bytes: bytes):
     s3.put_object(Bucket=BUCKET, Key=s3_key, Body=email_bytes)
 
 
+TEST_API_KEY = "sk_" + "a" * 64
+
+
 def _setup_dynamodb(tenant_slug="passpl", enabled=True, api_base_url=None):
     """Create DynamoDB table and insert a tenant config."""
     dynamodb = boto3.resource("dynamodb", region_name="us-east-1")
@@ -113,8 +115,7 @@ def _setup_dynamodb(tenant_slug="passpl", enabled=True, api_base_url=None):
     )
     item = {
         "tenant_slug": tenant_slug,
-        "service_email": f"svc@{tenant_slug}.satvos.com",
-        "service_password": "securepass123",
+        "service_api_key": TEST_API_KEY,
         "enabled": enabled,
     }
     if api_base_url:
@@ -123,27 +124,8 @@ def _setup_dynamodb(tenant_slug="passpl", enabled=True, api_base_url=None):
     return dynamodb
 
 
-def _future_expiry():
-    from datetime import datetime, timedelta, timezone
-    return (datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat()
-
-
 def _mock_api_calls(collection_id: str = "coll-1"):
-    """Register standard mocked API responses."""
-    # Login
-    responses.add(
-        responses.POST,
-        f"{BASE_URL}/auth/login",
-        json={
-            "success": True,
-            "data": {
-                "access_token": "tok",
-                "refresh_token": "ref",
-                "expires_at": _future_expiry(),
-            },
-        },
-        status=200,
-    )
+    """Register standard mocked API responses (no login — API key auth)."""
     # Create collection
     responses.add(
         responses.POST,
@@ -202,7 +184,7 @@ class TestLambdaHandler:
             lambda_handler(_ses_event(), None)
 
         # Verify the collection creation request includes sender email
-        create_coll_call = responses.calls[1]  # login=0, create_collection=1
+        create_coll_call = responses.calls[0]  # create_collection=0 (no login step)
         body = json.loads(create_coll_call.request.body)
         assert "sender@example.com" in body["description"]
 
@@ -267,13 +249,14 @@ class TestLambdaHandler:
 
     @mock_aws
     @responses.activate
-    def test_api_auth_failure_returns_200(self):
+    def test_api_failure_returns_200(self):
         _setup_dynamodb("passpl")
         _setup_s3("passpl", "auth-fail", VALID_EMAIL_BYTES)
+        # First API call (create collection) returns 401 — simulates invalid API key
         responses.add(
             responses.POST,
-            f"{BASE_URL}/auth/login",
-            json={"success": False, "error": "bad credentials"},
+            f"{BASE_URL}/collections",
+            json={"success": False, "error": "unauthorized"},
             status=401,
         )
 
@@ -337,8 +320,7 @@ class TestLambdaHandler:
         # Add second tenant to same table
         dynamodb.Table(TABLE_NAME).put_item(Item={
             "tenant_slug": "tenant-b",
-            "service_email": "svc@tenant-b.satvos.com",
-            "service_password": "pass-b",
+            "service_api_key": TEST_API_KEY,
             "enabled": True,
         })
 
@@ -362,20 +344,7 @@ class TestLambdaHandler:
         _setup_dynamodb("custom-co", api_base_url=custom_url)
         _setup_s3("custom-co", "msg-custom", VALID_EMAIL_BYTES)
 
-        # Mock API calls at the custom URL
-        responses.add(
-            responses.POST,
-            f"{custom_url}/auth/login",
-            json={
-                "success": True,
-                "data": {
-                    "access_token": "tok",
-                    "refresh_token": "ref",
-                    "expires_at": _future_expiry(),
-                },
-            },
-            status=200,
-        )
+        # Mock API calls at the custom URL (no login — API key auth)
         responses.add(
             responses.POST,
             f"{custom_url}/collections",

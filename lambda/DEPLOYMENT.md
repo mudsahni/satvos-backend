@@ -25,8 +25,7 @@ Email → GoDaddy MX → AWS SES (inbound)
                          Extract attachments
                                 │
                                 ▼
-                         SATVOS Backend API (tenant-specific credentials)
-                         ├── Login
+                         SATVOS Backend API (API key auth)
                          ├── Create collection
                          ├── Batch upload files
                          └── Create documents
@@ -87,8 +86,7 @@ aws dynamodb create-table \
 | Attribute | Type | Description |
 |-----------|------|-------------|
 | `tenant_slug` (PK) | String | e.g. `passpl` |
-| `service_email` | String | Service account email |
-| `service_password` | String | Service account password |
+| `service_api_key` | String | Service account API key (`sk_...`) |
 | `enabled` | Boolean | Toggle processing on/off |
 | `api_base_url` | String (optional) | Override default API URL |
 | `created_at` | String | ISO 8601 |
@@ -193,7 +191,7 @@ pip install -r requirements-scripts.txt
 
 python onboard_tenant.py \
     --tenant-slug acme \
-    --service-email invoice-processor@acme.satvos.com \
+    --service-api-key sk_<key-from-backend> \
     --lambda-function-arn arn:aws:lambda:ap-south-1:353922334273:function:ses-inbound-email-processor \
     --dry-run  # Remove for actual execution
 ```
@@ -201,9 +199,10 @@ python onboard_tenant.py \
 The script will:
 1. Create SES domain identity for `<tenant>.satvos.com`
 2. Create SES receipt rule pointing to the shared Lambda
-3. Insert tenant config into DynamoDB
-4. (Optionally) Create a SATVOS service account via API
-5. Print GoDaddy DNS records you need to add manually
+3. Insert tenant config (with API key) into DynamoDB
+4. Print GoDaddy DNS records you need to add manually
+
+> **Note:** The `inbound_email` service account is auto-created by the backend when a tenant is created. The API key is printed to stdout at startup. Use `POST /service-accounts/:id/rotate-key` to generate a new key if needed.
 
 ### Manual Onboarding Steps
 
@@ -240,27 +239,20 @@ Add MX record:
 
 #### Step 4: SATVOS Service Account
 
-Create a `manager` role user in the target tenant:
+The `inbound_email` service account is auto-created when the tenant is created. The API key is printed to the server's stdout at startup.
+
+If you need to create one manually:
 
 ```
-POST /api/v1/users
+POST /api/v1/service-accounts
+Authorization: Bearer <admin-jwt>
 {
-    "email": "invoice-processor@<tenant>.satvos.com",
-    "password": "<strong-password>",
-    "role": "manager",
-    "first_name": "Invoice",
-    "last_name": "Processor"
+    "name": "inbound_email",
+    "description": "Service account for inbound email processing"
 }
 ```
 
-Or via SQL:
-
-```sql
-INSERT INTO users (id, tenant_id, email, password_hash, first_name, last_name, role, email_verified, monthly_document_limit, created_at, updated_at)
-SELECT gen_random_uuid(), id, 'invoice-processor@<tenant>.satvos.com', '<bcrypt_hash>',
-       'Invoice', 'Processor', 'manager', true, 0, now(), now()
-FROM tenants WHERE slug = '<tenant>';
-```
+The response contains the raw API key (shown only once). Use this key in the DynamoDB config entry below.
 
 #### Step 5: DynamoDB Config Entry
 
@@ -269,8 +261,7 @@ aws dynamodb put-item \
     --table-name satvos-email-processor-tenants \
     --item '{
         "tenant_slug": {"S": "<tenant>"},
-        "service_email": {"S": "invoice-processor@<tenant>.satvos.com"},
-        "service_password": {"S": "<password>"},
+        "service_api_key": {"S": "sk_<key-from-step-4>"},
         "enabled": {"BOOL": true},
         "created_at": {"S": "2025-01-01T00:00:00Z"},
         "updated_at": {"S": "2025-01-01T00:00:00Z"}
@@ -304,22 +295,22 @@ The Lambda will log a warning and return 200 (no processing, no SES retries). Th
 If you have an existing single-tenant deployment (passpl):
 
 1. Create DynamoDB table (see Initial Setup step 2)
-2. Insert passpl config:
+2. Get the `inbound_email` service account API key from the backend (printed at startup, or create/rotate via admin API)
+3. Insert passpl config:
    ```bash
    aws dynamodb put-item \
        --table-name satvos-email-processor-tenants \
        --item '{
            "tenant_slug": {"S": "passpl"},
-           "service_email": {"S": "<current SATVOS_SERVICE_EMAIL value>"},
-           "service_password": {"S": "<current SATVOS_SERVICE_PASSWORD value>"},
+           "service_api_key": {"S": "sk_<api-key-from-backend>"},
            "enabled": {"BOOL": true},
            "created_at": {"S": "2025-01-01T00:00:00Z"},
            "updated_at": {"S": "2025-01-01T00:00:00Z"}
        }' \
        --region ap-south-1
    ```
-3. Update Lambda IAM role (add DynamoDB GetItem, widen S3 prefix to `ses-inbound/*`)
-4. Update Lambda env vars:
+4. Update Lambda IAM role (add DynamoDB GetItem, widen S3 prefix to `ses-inbound/*`)
+5. Update Lambda env vars:
    - **Remove:** `SATVOS_SERVICE_EMAIL`, `SATVOS_SERVICE_PASSWORD`, `SATVOS_TENANT_SLUG`, `SES_EMAIL_PREFIX`
    - **Add:** `DYNAMODB_TABLE_NAME=satvos-email-processor-tenants`
    - **Keep:** `SATVOS_API_BASE_URL`, `SES_EMAIL_BUCKET`, `LOG_LEVEL`
@@ -420,8 +411,8 @@ INVOICES: <Company Name>
 | `Ignored: no matching tenant recipient` | Recipient doesn't match pattern | Ensure SES rule uses `invoices@<tenant>.satvos.com` |
 | `Ignored: tenant not configured` | Missing DynamoDB entry | Run onboarding script or manually insert |
 | `Ignored: tenant disabled` | `enabled` is `false` in DynamoDB | Update DynamoDB item |
-| `Login failed: 404` | Wrong `SATVOS_API_BASE_URL` | Must include `/api/v1` path |
-| `Login failed: 401` | Wrong service account credentials | Check DynamoDB config matches SATVOS user |
+| `Failed to create collection: 401` | Invalid API key | Check `service_api_key` in DynamoDB matches the backend SA key |
+| `Failed to create collection: 403` | API key valid but missing collection permission | Verify SA has correct permissions, or that SA auto-creation succeeded |
 | `Invalid Status in invocation output` | Lambda created as "Durable" type | Recreate as "Standard" type |
 | Subject ignored | Doesn't match `INVOICES: <name>` | Check for `RE:`, `FWD:`, or missing company name |
 | Stale config after DynamoDB update | 5-minute cache | Wait up to 5 minutes for cache to expire |

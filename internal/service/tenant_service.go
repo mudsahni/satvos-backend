@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"log"
 
 	"github.com/google/uuid"
 
@@ -32,12 +33,13 @@ type TenantService interface {
 }
 
 type tenantService struct {
-	repo port.TenantRepository
+	repo  port.TenantRepository
+	saSvc ServiceAccountService // optional, nil-safe
 }
 
 // NewTenantService creates a new TenantService implementation.
-func NewTenantService(repo port.TenantRepository) TenantService {
-	return &tenantService{repo: repo}
+func NewTenantService(repo port.TenantRepository, saSvc ServiceAccountService) TenantService {
+	return &tenantService{repo: repo, saSvc: saSvc}
 }
 
 func (s *tenantService) Create(ctx context.Context, input CreateTenantInput) (*domain.Tenant, error) {
@@ -49,6 +51,18 @@ func (s *tenantService) Create(ctx context.Context, input CreateTenantInput) (*d
 	if err := s.repo.Create(ctx, tenant); err != nil {
 		return nil, err
 	}
+
+	// Auto-create inbound_email service account (non-blocking).
+	// createdBy=uuid.Nil signals system-created (no FK constraint on created_by).
+	if s.saSvc != nil {
+		apiKey, saErr := s.saSvc.EnsureInboundEmailServiceAccount(ctx, tenant.ID, uuid.Nil)
+		if saErr != nil {
+			log.Printf("WARNING: failed to auto-create inbound_email SA for tenant %s: %v", tenant.ID, saErr)
+		} else if apiKey != "" {
+			log.Printf("Auto-created inbound_email service account for tenant %s", tenant.ID)
+		}
+	}
+
 	return tenant, nil
 }
 

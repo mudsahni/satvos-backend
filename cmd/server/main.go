@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 
 	"satvos/internal/config"
 	"satvos/internal/domain"
@@ -116,12 +117,12 @@ func run() error {
 	// Initialize services
 	authSvc := service.NewAuthService(userRepo, tenantRepo, cfg.JWT)
 	fileSvc := service.NewFileService(fileRepo, s3Client, &cfg.S3)
-	tenantSvc := service.NewTenantService(tenantRepo)
+	serviceAccountSvc := service.NewServiceAccountService(saRepo, saPermRepo, collectionRepo)
+	tenantSvc := service.NewTenantService(tenantRepo, serviceAccountSvc)
 	userSvc := service.NewUserService(userRepo)
-	collectionSvc := service.NewCollectionService(collectionRepo, collectionPermRepo, collectionFileRepo, fileSvc, userRepo)
+	collectionSvc := service.NewCollectionService(collectionRepo, collectionPermRepo, collectionFileRepo, fileSvc, userRepo, saPermRepo)
 	statsSvc := service.NewStatsService(statsRepo)
 	reportSvc := service.NewReportService(reportRepo)
-	serviceAccountSvc := service.NewServiceAccountService(saRepo, saPermRepo, collectionRepo)
 
 	documentSvc := service.NewDocumentService(&service.DocumentServiceDeps{
 		DocRepo:     docRepo,
@@ -139,7 +140,7 @@ func run() error {
 	})
 
 	// Auto-create free tier tenant if it doesn't exist
-	ensureFreeTierTenant(tenantRepo, cfg.FreeTier.TenantSlug)
+	ensureFreeTierTenant(tenantRepo, cfg.FreeTier.TenantSlug, serviceAccountSvc)
 
 	// Initialize email sender
 	emailSender, err := initEmailSender(cfg)
@@ -307,21 +308,34 @@ func initSocialAuth(
 }
 
 // ensureFreeTierTenant auto-creates the free tier tenant if it doesn't exist.
-func ensureFreeTierTenant(tenantRepo port.TenantRepository, slug string) {
-	if _, err := tenantRepo.GetBySlug(context.Background(), slug); err != nil {
+func ensureFreeTierTenant(tenantRepo port.TenantRepository, slug string, saSvc service.ServiceAccountService) {
+	tenant, err := tenantRepo.GetBySlug(context.Background(), slug)
+	if err != nil {
 		log.Printf("Free tier tenant '%s' not found, creating...", slug)
-		ft := &domain.Tenant{
+		tenant = &domain.Tenant{
 			Name:     "SATVOS Free Tier",
 			Slug:     slug,
 			IsActive: true,
 		}
-		if createErr := tenantRepo.Create(context.Background(), ft); createErr != nil {
+		if createErr := tenantRepo.Create(context.Background(), tenant); createErr != nil {
 			log.Printf("WARNING: failed to create free tier tenant: %v", createErr)
-		} else {
-			log.Printf("Free tier tenant '%s' created with ID %s", slug, ft.ID)
+			return
 		}
+		log.Printf("Free tier tenant '%s' created with ID %s", slug, tenant.ID)
 	} else {
 		log.Printf("Free tier tenant '%s' ready", slug)
+	}
+
+	// Ensure inbound_email SA exists (idempotent)
+	if saSvc != nil {
+		// createdBy=uuid.Nil signals system-created (no FK constraint on created_by)
+		apiKey, saErr := saSvc.EnsureInboundEmailServiceAccount(context.Background(), tenant.ID, uuid.Nil)
+		if saErr != nil {
+			log.Printf("WARNING: failed to ensure inbound_email SA: %v", saErr)
+		} else if apiKey != "" {
+			log.Printf("*** INBOUND EMAIL API KEY for tenant '%s': %s...%s ***", slug, apiKey[:11], apiKey[len(apiKey)-4:])
+			log.Printf("*** Copy this key to DynamoDB — it will not be shown again ***")
+		}
 	}
 }
 

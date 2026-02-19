@@ -25,7 +25,10 @@
       "Bash(gh repo view:*)",
       "Bash(gh api:*)",
       "Bash(xargs -0 awk:*)",
-      "Bash(make test:*)"
+      "Bash(make test:*)",
+      "Bash(source:*)",
+      "Bash(pip install:*)",
+      "Bash(PYTHONPATH=. python -m pytest:*)"
     ]
   }
 }

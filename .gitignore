@@ -43,3 +43,8 @@ tmp/
 __pycache__/
 *.pyc
 .pytest_cache/
+.venv/
+
+# Lambda packaging
+lambda/package/
+lambda/lambda.zip
