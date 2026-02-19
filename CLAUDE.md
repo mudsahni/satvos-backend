@@ -198,8 +198,9 @@ The `logic.invoice.duplicate` validator uses three match tiers:
 - **Role**: `RoleService` (level 0, no implicit collection access). All access is via explicit `service_account_permissions` grants
 - **Management**: Admin-only CRUD under `POST/GET/DELETE /api/v1/service-accounts`, plus `POST /:id/rotate-key`, `POST /:id/revoke`
 - **Permissions**: `POST/GET/DELETE /api/v1/service-accounts/:id/permissions` — grants editor/viewer/owner on specific collections
-- **Restrictions**: Cannot review documents (`PUT /documents/:id/review`), cannot be assigned documents (`PUT /documents/:id/assign`), cannot create collections, cannot manage users/tenants
-- **Allowed**: Upload files, create/list/get documents, validate, manage tags, read reports/stats, export CSV/Tally (all scoped to permitted collections)
+- **Restrictions**: Cannot review documents (`PUT /documents/:id/review`), cannot be assigned documents (`PUT /documents/:id/assign`), cannot manage collection permissions (`SetPermission`/`ListPermissions`/`RemovePermission`), cannot manage users/tenants
+- **Allowed**: Create collections (auto-granted owner via `service_account_permissions`), upload files, create/list/get documents, validate, manage tags, read reports/stats, export CSV/Tally (all scoped to permitted collections)
+- **Auto-creation**: `EnsureInboundEmailServiceAccount` idempotently creates an `inbound_email` SA per tenant (called on tenant creation and free-tier startup). `createdBy=uuid.Nil` for system-created SAs
 - **File isolation**: Like free tier — only sees files it uploaded
 - **Key rotation**: `POST /service-accounts/:id/rotate-key` generates new key, invalidates old one
 - **Expiry**: Optional `expires_at` on creation. Expired keys return `ErrAPIKeyRevoked`
@@ -270,7 +271,8 @@ Go 1.24, Gin, PostgreSQL 16 (sqlx + pgx/v5), AWS S3 (aws-sdk-go-v2), AWS SES v2,
 - **Password reset doesn't invalidate sessions** — tokens expire naturally
 - **`NewAuthHandler` takes 4 params**: `(authService, registrationService, passwordResetService, socialAuthService)` — any can be nil
 - **Audit trail non-blocking**: `audit()` helper logs errors but never fails the parent operation. Audit repo is nil-safe (skipped when nil). No FK constraints on audit table — entries survive document/user/tenant deletion
-- **`NewCollectionService` takes 5 params**: `(collectionRepo, collectionPermissionRepo, collectionFileRepo, documentService, userRepo)` — userRepo for tenant validation in SetPermission
+- **`NewCollectionService` takes 6 params**: `(collectionRepo, collectionPermissionRepo, collectionFileRepo, fileService, userRepo, saPermRepo)` — saPermRepo is optional (nil-safe) for SA collection access
+- **`NewTenantService` takes 2 params**: `(tenantRepo, serviceAccountService)` — saSvc is optional (nil-safe), triggers auto-creation of `inbound_email` SA on tenant creation
 - **`NewDocumentHandler` takes 2 params**: `(documentService, auditRepo)` — auditRepo used for direct read in `ListAudit`
 - **`NewDocumentService` takes 10 params**: `(docRepo, fileRepo, userRepo, permRepo, tagRepo, docParser, storage, validationEngine, auditRepo, summaryRepo)` — summaryRepo can be nil
 - **`router.Setup` takes 14 params**: `(authSvc, authH, fileH, tenantH, userH, healthH, collectionH, documentH, statsH, reportH, serviceAccountH, corsOrigins, userRepo, saSvc)`

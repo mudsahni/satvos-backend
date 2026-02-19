@@ -52,9 +52,10 @@ func (s *tenantService) Create(ctx context.Context, input CreateTenantInput) (*d
 		return nil, err
 	}
 
-	// Auto-create inbound_email service account (non-blocking)
+	// Auto-create inbound_email service account (non-blocking).
+	// createdBy=uuid.Nil signals system-created (no FK constraint on created_by).
 	if s.saSvc != nil {
-		apiKey, saErr := s.saSvc.EnsureInboundEmailServiceAccount(ctx, tenant.ID, tenant.ID)
+		apiKey, saErr := s.saSvc.EnsureInboundEmailServiceAccount(ctx, tenant.ID, uuid.Nil)
 		if saErr != nil {
 			log.Printf("WARNING: failed to auto-create inbound_email SA for tenant %s: %v", tenant.ID, saErr)
 		} else if apiKey != "" {

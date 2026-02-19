@@ -1120,3 +1120,73 @@ func TestCollectionService_GetByID_SANoPerm(t *testing.T) {
 	assert.Nil(t, result)
 	assert.ErrorIs(t, err, domain.ErrCollectionPermDenied)
 }
+
+func TestCollectionService_List_ServiceAccount(t *testing.T) {
+	svc, collRepo, _ := setupCollectionServiceWithSA()
+
+	tenantID := uuid.New()
+	saID := uuid.New()
+	expected := []domain.Collection{{ID: uuid.New(), Name: "SA Collection"}}
+
+	collRepo.On("ListByServiceAccount", mock.Anything, tenantID, saID, 0, 20).
+		Return(expected, 1, nil)
+
+	collections, total, err := svc.List(context.Background(), tenantID, saID, domain.RoleService, 0, 20)
+
+	assert.NoError(t, err)
+	assert.Len(t, collections, 1)
+	assert.Equal(t, 1, total)
+	collRepo.AssertCalled(t, "ListByServiceAccount", mock.Anything, tenantID, saID, 0, 20)
+}
+
+func TestCollectionService_EffectivePermissions_ServiceAccount(t *testing.T) {
+	svc, _, saPermRepo := setupCollectionServiceWithSA()
+
+	saID := uuid.New()
+	coll1 := uuid.New()
+	coll2 := uuid.New()
+	collIDs := []uuid.UUID{coll1, coll2}
+
+	saPermRepo.On("GetByAccountForCollections", mock.Anything, saID, collIDs).
+		Return(map[uuid.UUID]domain.CollectionPermission{
+			coll1: domain.CollectionPermOwner,
+			coll2: domain.CollectionPermEditor,
+		}, nil)
+
+	result, err := svc.EffectivePermissions(context.Background(), collIDs, saID, domain.RoleService)
+
+	assert.NoError(t, err)
+	assert.Equal(t, domain.CollectionPermOwner, result[coll1])
+	assert.Equal(t, domain.CollectionPermEditor, result[coll2])
+}
+
+func TestCollectionService_SetPermission_SABlocked(t *testing.T) {
+	svc, _, _ := setupCollectionServiceWithSA()
+
+	err := svc.SetPermission(context.Background(), &service.SetPermissionInput{
+		TenantID:     uuid.New(),
+		CollectionID: uuid.New(),
+		UserID:       uuid.New(),
+		Permission:   domain.CollectionPermEditor,
+		GrantedBy:    uuid.New(),
+		CallerRole:   domain.RoleService,
+	})
+
+	assert.ErrorIs(t, err, domain.ErrInsufficientRole)
+}
+
+func TestCollectionService_ListPermissions_SABlocked(t *testing.T) {
+	svc, _, _ := setupCollectionServiceWithSA()
+
+	_, _, err := svc.ListPermissions(context.Background(), uuid.New(), uuid.New(), uuid.New(), domain.RoleService, 0, 20)
+
+	assert.ErrorIs(t, err, domain.ErrInsufficientRole)
+}
+
+func TestCollectionService_RemovePermission_SABlocked(t *testing.T) {
+	svc, _, _ := setupCollectionServiceWithSA()
+
+	err := svc.RemovePermission(context.Background(), uuid.New(), uuid.New(), uuid.New(), uuid.New(), domain.RoleService)
+
+	assert.ErrorIs(t, err, domain.ErrInsufficientRole)
+}

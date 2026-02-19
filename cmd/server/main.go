@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 
 	"satvos/internal/config"
 	"satvos/internal/domain"
@@ -327,11 +328,12 @@ func ensureFreeTierTenant(tenantRepo port.TenantRepository, slug string, saSvc s
 
 	// Ensure inbound_email SA exists (idempotent)
 	if saSvc != nil {
-		apiKey, saErr := saSvc.EnsureInboundEmailServiceAccount(context.Background(), tenant.ID, tenant.ID)
+		// createdBy=uuid.Nil signals system-created (no FK constraint on created_by)
+		apiKey, saErr := saSvc.EnsureInboundEmailServiceAccount(context.Background(), tenant.ID, uuid.Nil)
 		if saErr != nil {
 			log.Printf("WARNING: failed to ensure inbound_email SA: %v", saErr)
 		} else if apiKey != "" {
-			log.Printf("*** INBOUND EMAIL API KEY for tenant '%s': %s ***", slug, apiKey)
+			log.Printf("*** INBOUND EMAIL API KEY for tenant '%s': %s...%s ***", slug, apiKey[:11], apiKey[len(apiKey)-4:])
 			log.Printf("*** Copy this key to DynamoDB — it will not be shown again ***")
 		}
 	}

@@ -194,6 +194,35 @@ func (r *serviceAccountPermissionRepo) GetByAccountAndCollection(ctx context.Con
 	return &perm, nil
 }
 
+func (r *serviceAccountPermissionRepo) GetByAccountForCollections(ctx context.Context, saID uuid.UUID, collectionIDs []uuid.UUID) (map[uuid.UUID]domain.CollectionPermission, error) {
+	if len(collectionIDs) == 0 {
+		return make(map[uuid.UUID]domain.CollectionPermission), nil
+	}
+
+	query, args, err := sqlx.In(
+		"SELECT collection_id, permission FROM service_account_permissions WHERE service_account_id = ? AND collection_id IN (?)",
+		saID, collectionIDs,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("saPermissionRepo.GetByAccountForCollections: building query: %w", err)
+	}
+	query = r.db.Rebind(query)
+
+	var rows []struct {
+		CollectionID uuid.UUID                   `db:"collection_id"`
+		Permission   domain.CollectionPermission `db:"permission"`
+	}
+	if err := r.db.SelectContext(ctx, &rows, query, args...); err != nil {
+		return nil, fmt.Errorf("saPermissionRepo.GetByAccountForCollections: %w", err)
+	}
+
+	result := make(map[uuid.UUID]domain.CollectionPermission, len(rows))
+	for i := range rows {
+		result[rows[i].CollectionID] = rows[i].Permission
+	}
+	return result, nil
+}
+
 func (r *serviceAccountPermissionRepo) ListByAccount(ctx context.Context, tenantID, saID uuid.UUID) ([]domain.ServiceAccountPermission, error) {
 	var perms []domain.ServiceAccountPermission
 	err := r.db.SelectContext(ctx, &perms,

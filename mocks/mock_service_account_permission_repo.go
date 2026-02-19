@@ -27,6 +27,14 @@ func (m *MockServiceAccountPermissionRepo) GetByAccountAndCollection(ctx context
 	return args.Get(0).(*domain.ServiceAccountPermission), args.Error(1)
 }
 
+func (m *MockServiceAccountPermissionRepo) GetByAccountForCollections(ctx context.Context, saID uuid.UUID, collectionIDs []uuid.UUID) (map[uuid.UUID]domain.CollectionPermission, error) {
+	args := m.Called(ctx, saID, collectionIDs)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(map[uuid.UUID]domain.CollectionPermission), args.Error(1)
+}
+
 func (m *MockServiceAccountPermissionRepo) ListByAccount(ctx context.Context, tenantID, saID uuid.UUID) ([]domain.ServiceAccountPermission, error) {
 	args := m.Called(ctx, tenantID, saID)
 	if args.Get(0) == nil {

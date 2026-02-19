@@ -151,7 +151,7 @@ func TestTenantService_Create_AutoCreatesSA(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.NotNil(t, tenant)
-	saSvc.AssertCalled(t, "EnsureInboundEmailServiceAccount", mock.Anything, tenant.ID, tenant.ID)
+	saSvc.AssertCalled(t, "EnsureInboundEmailServiceAccount", mock.Anything, tenant.ID, uuid.Nil)
 }
 
 func TestTenantService_Create_SAFailureNonBlocking(t *testing.T) {
