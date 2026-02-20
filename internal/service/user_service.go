@@ -14,7 +14,7 @@ import (
 // CreateUserInput is the DTO for creating a user.
 type CreateUserInput struct {
 	Email    string          `json:"email" binding:"required,email"`
-	Password string          `json:"password" binding:"required,min=8"`
+	Password string          `json:"password" binding:"omitempty,min=8"`
 	FullName string          `json:"full_name" binding:"required"`
 	Role     domain.UserRole `json:"role" binding:"required"`
 }
@@ -50,19 +50,21 @@ func (s *userService) Create(ctx context.Context, tenantID uuid.UUID, input Crea
 		return nil, domain.ErrInsufficientRole
 	}
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(input.Password), 12)
-	if err != nil {
-		return nil, fmt.Errorf("hashing password: %w", err)
+	user := &domain.User{
+		TenantID: tenantID,
+		Email:    input.Email,
+		FullName: input.FullName,
+		Role:     input.Role,
+		IsActive: true,
 	}
 
-	user := &domain.User{
-		TenantID:      tenantID,
-		Email:         input.Email,
-		PasswordHash:  string(hash),
-		FullName:      input.FullName,
-		Role:          input.Role,
-		IsActive:      true,
-		EmailVerified: true,
+	if input.Password != "" {
+		hash, err := bcrypt.GenerateFromPassword([]byte(input.Password), 12)
+		if err != nil {
+			return nil, fmt.Errorf("hashing password: %w", err)
+		}
+		user.PasswordHash = string(hash)
+		user.EmailVerified = true
 	}
 
 	if err := s.repo.Create(ctx, user); err != nil {

@@ -35,4 +35,6 @@ var (
 	ErrServiceAccountNotFound      = errors.New("service account not found")
 	ErrAPIKeyInvalid               = errors.New("invalid API key")
 	ErrAPIKeyRevoked               = errors.New("API key has been revoked")
+	ErrInvitationPending           = errors.New("please accept your invitation before logging in")
+	ErrInvitationTokenInvalid      = errors.New("invitation token is invalid or has already been used")
 )

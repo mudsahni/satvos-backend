@@ -38,6 +38,31 @@ func TestUserService_Create_Success(t *testing.T) {
 	repo.AssertExpectations(t)
 }
 
+func TestUserService_Create_NoPassword_InvitationFlow(t *testing.T) {
+	repo := new(mocks.MockUserRepo)
+	svc := service.NewUserService(repo)
+
+	tenantID := uuid.New()
+
+	repo.On("Create", mock.Anything, mock.AnythingOfType("*domain.User")).Return(nil)
+
+	user, err := svc.Create(context.Background(), tenantID, service.CreateUserInput{
+		Email:    "invited@test.com",
+		FullName: "Invited User",
+		Role:     domain.RoleMember,
+	})
+
+	assert.NoError(t, err)
+	assert.Equal(t, "invited@test.com", user.Email)
+	assert.Equal(t, "Invited User", user.FullName)
+	assert.Equal(t, domain.RoleMember, user.Role)
+	assert.True(t, user.IsActive)
+	assert.Empty(t, user.PasswordHash)
+	assert.False(t, user.EmailVerified)
+	assert.Equal(t, tenantID, user.TenantID)
+	repo.AssertExpectations(t)
+}
+
 func TestUserService_Create_DuplicateEmail(t *testing.T) {
 	repo := new(mocks.MockUserRepo)
 	svc := service.NewUserService(repo)

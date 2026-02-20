@@ -150,6 +150,7 @@ func run() error {
 	registrationSvc := service.NewRegistrationService(tenantRepo, userRepo, collectionRepo, collectionPermRepo, authSvc, emailSender, cfg.JWT, cfg.FreeTier)
 	passwordResetSvc := service.NewPasswordResetService(tenantRepo, userRepo, emailSender, cfg.JWT)
 	socialAuthSvc := initSocialAuth(cfg, tenantRepo, userRepo, collectionRepo, collectionPermRepo, authSvc)
+	invitationSvc := service.NewInvitationService(userRepo, emailSender, authSvc, cfg.JWT)
 
 	// Start parse queue worker
 	queueCfg := service.ParseQueueConfig{
@@ -165,10 +166,10 @@ func run() error {
 	go queueWorker.Start(queueCtx)
 
 	// Initialize handlers
-	authH := handler.NewAuthHandler(authSvc, registrationSvc, passwordResetSvc, socialAuthSvc)
+	authH := handler.NewAuthHandler(authSvc, registrationSvc, passwordResetSvc, socialAuthSvc, invitationSvc)
 	fileH := handler.NewFileHandler(fileSvc, collectionSvc)
 	tenantH := handler.NewTenantHandler(tenantSvc)
-	userH := handler.NewUserHandler(userSvc)
+	userH := handler.NewUserHandler(userSvc, invitationSvc)
 	healthH := handler.NewHealthHandler(db)
 	collectionH := handler.NewCollectionHandler(collectionSvc, documentSvc)
 	documentH := handler.NewDocumentHandler(documentSvc, auditRepo)

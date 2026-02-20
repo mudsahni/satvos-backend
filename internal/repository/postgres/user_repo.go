@@ -220,6 +220,23 @@ func (r *userRepo) ResetPassword(ctx context.Context, tenantID, userID uuid.UUID
 	return nil
 }
 
+func (r *userRepo) AcceptInvitation(ctx context.Context, tenantID, userID uuid.UUID, passwordHash, expectedTokenID string) error {
+	result, err := r.db.ExecContext(ctx,
+		`UPDATE users
+		 SET password_hash = $1, email_verified = true, email_verified_at = NOW(),
+		     password_reset_token_id = NULL, updated_at = NOW()
+		 WHERE id = $2 AND tenant_id = $3 AND password_reset_token_id = $4`,
+		passwordHash, userID, tenantID, expectedTokenID)
+	if err != nil {
+		return fmt.Errorf("userRepo.AcceptInvitation: %w", err)
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return domain.ErrInvitationTokenInvalid
+	}
+	return nil
+}
+
 func (r *userRepo) GetByProviderID(ctx context.Context, tenantID uuid.UUID, provider domain.AuthProvider, providerUserID string) (*domain.User, error) {
 	var user domain.User
 	err := r.db.GetContext(ctx, &user,

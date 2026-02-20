@@ -250,6 +250,7 @@ func TestAuthService_Login_OAuthOnlyUser(t *testing.T) {
 		TenantID:     tenantID,
 		Email:        "oauth@test.com",
 		PasswordHash: "", // OAuth-only — no password
+		AuthProvider: domain.AuthProviderGoogle,
 		IsActive:     true,
 	}
 
@@ -264,6 +265,35 @@ func TestAuthService_Login_OAuthOnlyUser(t *testing.T) {
 
 	assert.Nil(t, result)
 	assert.ErrorIs(t, err, domain.ErrPasswordLoginNotAllowed)
+}
+
+func TestAuthService_Login_InvitedUser(t *testing.T) {
+	tenantRepo := new(mocks.MockTenantRepo)
+	userRepo := new(mocks.MockUserRepo)
+	cfg := testJWTConfig()
+	svc := service.NewAuthService(userRepo, tenantRepo, cfg)
+
+	tenantID := uuid.New()
+	tenant := &domain.Tenant{ID: tenantID, Slug: "test-tenant", IsActive: true}
+	user := &domain.User{
+		ID:           uuid.New(),
+		TenantID:     tenantID,
+		Email:        "invited@test.com",
+		PasswordHash: "", // Invited — no password yet
+		IsActive:     true,
+	}
+
+	tenantRepo.On("GetBySlug", mock.Anything, "test-tenant").Return(tenant, nil)
+	userRepo.On("GetByEmail", mock.Anything, tenantID, "invited@test.com").Return(user, nil)
+
+	result, err := svc.Login(context.Background(), service.LoginInput{
+		TenantSlug: "test-tenant",
+		Email:      "invited@test.com",
+		Password:   "anypassword",
+	})
+
+	assert.Nil(t, result)
+	assert.ErrorIs(t, err, domain.ErrInvitationPending)
 }
 
 func TestAuthService_RefreshToken_Success(t *testing.T) {

@@ -106,6 +106,56 @@ func (s *sesSender) SendPasswordResetEmail(ctx context.Context, toEmail, toName,
 	return nil
 }
 
+func (s *sesSender) SendInvitationEmail(ctx context.Context, toEmail, toName, roleName, invitationToken string) error {
+	inviteURL := fmt.Sprintf("%s/accept-invitation?token=%s", s.frontendURL, url.QueryEscape(invitationToken))
+
+	subject := "You've been invited to join SATVOS"
+	htmlBody := buildInvitationHTML(toName, roleName, inviteURL)
+	textBody := fmt.Sprintf("Hi %s,\n\nYou've been invited to join SATVOS as a %s. Click the link below to set your password and get started:\n%s\n\nThis link expires in 72 hours.\n\nSATVOS Team", toName, roleName, inviteURL)
+
+	from := fmt.Sprintf("%s <%s>", s.fromName, s.fromAddress)
+
+	_, err := s.client.SendEmail(ctx, &sesv2.SendEmailInput{
+		FromEmailAddress: &from,
+		Destination: &types.Destination{
+			ToAddresses: []string{toEmail},
+		},
+		Content: &types.EmailContent{
+			Simple: &types.Message{
+				Subject: &types.Content{Data: &subject},
+				Body: &types.Body{
+					Html: &types.Content{Data: &htmlBody},
+					Text: &types.Content{Data: &textBody},
+				},
+			},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("SES SendEmail: %w", err)
+	}
+	return nil
+}
+
+func buildInvitationHTML(name, roleName, inviteURL string) string {
+	return fmt.Sprintf(`<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"></head>
+<body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+  <h2 style="color: #333;">You've been invited to SATVOS</h2>
+  <p>Hi %s,</p>
+  <p>You've been invited to join SATVOS as a <strong>%s</strong>. Click the button below to set your password and get started:</p>
+  <p style="text-align: center; margin: 30px 0;">
+    <a href="%s" style="background-color: #4F46E5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">Set Password &amp; Get Started</a>
+  </p>
+  <p>Or copy and paste this link into your browser:</p>
+  <p style="word-break: break-all; color: #666;">%s</p>
+  <p style="color: #999; font-size: 12px;">This link expires in 72 hours.</p>
+  <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
+  <p style="color: #999; font-size: 12px;">SATVOS - Invoice Processing Platform</p>
+</body>
+</html>`, name, roleName, inviteURL, inviteURL)
+}
+
 func buildVerificationHTML(name, verifyURL string) string {
 	return fmt.Sprintf(`<!DOCTYPE html>
 <html>

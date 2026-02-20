@@ -33,6 +33,7 @@ type UserRepository interface {
 	ResetPassword(ctx context.Context, tenantID, userID uuid.UUID, passwordHash, expectedTokenID string) error
 	GetByProviderID(ctx context.Context, tenantID uuid.UUID, provider domain.AuthProvider, providerUserID string) (*domain.User, error)
 	LinkProvider(ctx context.Context, tenantID, userID uuid.UUID, provider domain.AuthProvider, providerUserID string) error
+	AcceptInvitation(ctx context.Context, tenantID, userID uuid.UUID, passwordHash, expectedTokenID string) error
 }
 
 // FileMetaRepository defines the contract for file metadata persistence.

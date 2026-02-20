@@ -81,6 +81,11 @@ func (s *passwordResetService) ForgotPassword(ctx context.Context, input ForgotP
 		return nil
 	}
 
+	// Skip invited users who haven't accepted yet — they need invitation, not reset
+	if user.PasswordHash == "" && user.AuthProvider != domain.AuthProviderGoogle {
+		return nil
+	}
+
 	tokenString, jti, err := s.generateResetToken(user)
 	if err != nil {
 		log.Printf("WARNING: failed to generate password reset token for %s: %v", user.Email, err)

@@ -94,7 +94,10 @@ func (s *authService) Login(ctx context.Context, input LoginInput) (*TokenPair, 
 	}
 
 	if user.PasswordHash == "" {
-		return nil, domain.ErrPasswordLoginNotAllowed
+		if user.AuthProvider == domain.AuthProviderGoogle {
+			return nil, domain.ErrPasswordLoginNotAllowed
+		}
+		return nil, domain.ErrInvitationPending
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(input.Password)); err != nil {

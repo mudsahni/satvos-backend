@@ -85,3 +85,8 @@ func (m *MockUserRepo) LinkProvider(ctx context.Context, tenantID, userID uuid.U
 	args := m.Called(ctx, tenantID, userID, provider, providerUserID)
 	return args.Error(0)
 }
+
+func (m *MockUserRepo) AcceptInvitation(ctx context.Context, tenantID, userID uuid.UUID, passwordHash, expectedTokenID string) error {
+	args := m.Called(ctx, tenantID, userID, passwordHash, expectedTokenID)
+	return args.Error(0)
+}

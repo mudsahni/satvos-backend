@@ -47,12 +47,13 @@ func TestForgotPassword_Success(t *testing.T) {
 
 	tenant := &domain.Tenant{ID: tenantID, Slug: "test-tenant", IsActive: true}
 	user := &domain.User{
-		ID:       userID,
-		TenantID: tenantID,
-		Email:    "user@test.com",
-		FullName: "Test User",
-		Role:     domain.RoleMember,
-		IsActive: true,
+		ID:           userID,
+		TenantID:     tenantID,
+		Email:        "user@test.com",
+		FullName:     "Test User",
+		Role:         domain.RoleMember,
+		IsActive:     true,
+		PasswordHash: "$2a$12$existing-hash",
 	}
 
 	tenantRepo.On("GetBySlug", ctx, "test-tenant").Return(tenant, nil)
@@ -157,12 +158,13 @@ func TestForgotPassword_EmailSendFailure(t *testing.T) {
 
 	tenant := &domain.Tenant{ID: tenantID, Slug: "test-tenant", IsActive: true}
 	user := &domain.User{
-		ID:       userID,
-		TenantID: tenantID,
-		Email:    "user@test.com",
-		FullName: "Test User",
-		Role:     domain.RoleMember,
-		IsActive: true,
+		ID:           userID,
+		TenantID:     tenantID,
+		Email:        "user@test.com",
+		FullName:     "Test User",
+		Role:         domain.RoleMember,
+		IsActive:     true,
+		PasswordHash: "$2a$12$existing-hash",
 	}
 
 	tenantRepo.On("GetBySlug", ctx, "test-tenant").Return(tenant, nil)
@@ -192,12 +194,13 @@ func TestResetPassword_Success(t *testing.T) {
 
 	tenant := &domain.Tenant{ID: tenantID, Slug: "test-tenant", IsActive: true}
 	user := &domain.User{
-		ID:       userID,
-		TenantID: tenantID,
-		Email:    "user@test.com",
-		FullName: "Test User",
-		Role:     domain.RoleMember,
-		IsActive: true,
+		ID:           userID,
+		TenantID:     tenantID,
+		Email:        "user@test.com",
+		FullName:     "Test User",
+		Role:         domain.RoleMember,
+		IsActive:     true,
+		PasswordHash: "$2a$12$existing-hash",
 	}
 
 	tenantRepo.On("GetBySlug", ctx, "test-tenant").Return(tenant, nil)
@@ -322,12 +325,13 @@ func TestResetPassword_TokenAlreadyUsed(t *testing.T) {
 
 	tenant := &domain.Tenant{ID: tenantID, Slug: "test-tenant", IsActive: true}
 	user := &domain.User{
-		ID:       userID,
-		TenantID: tenantID,
-		Email:    "user@test.com",
-		FullName: "Test User",
-		Role:     domain.RoleMember,
-		IsActive: true,
+		ID:           userID,
+		TenantID:     tenantID,
+		Email:        "user@test.com",
+		FullName:     "Test User",
+		Role:         domain.RoleMember,
+		IsActive:     true,
+		PasswordHash: "$2a$12$existing-hash",
 	}
 
 	tenantRepo.On("GetBySlug", ctx, "test-tenant").Return(tenant, nil)
@@ -382,12 +386,13 @@ func TestResetPassword_NewTokenInvalidatesOld(t *testing.T) {
 
 	tenant := &domain.Tenant{ID: tenantID, Slug: "test-tenant", IsActive: true}
 	user := &domain.User{
-		ID:       userID,
-		TenantID: tenantID,
-		Email:    "user@test.com",
-		FullName: "Test User",
-		Role:     domain.RoleMember,
-		IsActive: true,
+		ID:           userID,
+		TenantID:     tenantID,
+		Email:        "user@test.com",
+		FullName:     "Test User",
+		Role:         domain.RoleMember,
+		IsActive:     true,
+		PasswordHash: "$2a$12$existing-hash",
 	}
 
 	tenantRepo.On("GetBySlug", ctx, "test-tenant").Return(tenant, nil)
@@ -461,12 +466,13 @@ func TestResetPassword_VerifyBcryptHash(t *testing.T) {
 
 	tenant := &domain.Tenant{ID: tenantID, Slug: "test-tenant", IsActive: true}
 	user := &domain.User{
-		ID:       userID,
-		TenantID: tenantID,
-		Email:    "user@test.com",
-		FullName: "Test User",
-		Role:     domain.RoleMember,
-		IsActive: true,
+		ID:           userID,
+		TenantID:     tenantID,
+		Email:        "user@test.com",
+		FullName:     "Test User",
+		Role:         domain.RoleMember,
+		IsActive:     true,
+		PasswordHash: "$2a$12$existing-hash",
 	}
 
 	tenantRepo.On("GetBySlug", ctx, "test-tenant").Return(tenant, nil)
