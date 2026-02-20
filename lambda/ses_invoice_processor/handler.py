@@ -113,7 +113,7 @@ def _process_event(event: dict, config: Config) -> dict:
     client = SatvosClient(api_base_url, tenant_slug)
     client.authenticate_with_api_key(tenant_config.service_api_key)
 
-    result = client.process_attachments(parsed.company_name, parsed.attachments, sender_email=parsed.sender)
+    result = client.process_attachments(parsed.company_name, parsed.attachments, sender_email=sender_email)
 
     summary = (
         f"Processed: tenant={tenant_slug}, collection={result.collection_name}, "
