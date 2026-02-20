@@ -200,12 +200,14 @@ func (s *collectionService) Create(ctx context.Context, input *CreateCollectionI
 			log.Printf("collectionService.Create: owner_email %q not found in tenant %s, skipping: %v",
 				input.OwnerEmail, input.TenantID, lookupErr)
 		} else if ownerUser.ID != input.CreatedBy {
+			// Use ownerUser.ID as GrantedBy: when CreatedBy is a service account,
+			// its UUID isn't in the users table and would violate the FK constraint.
 			emailOwnerPerm := &domain.CollectionPermissionEntry{
 				CollectionID: collection.ID,
 				TenantID:     input.TenantID,
 				UserID:       ownerUser.ID,
 				Permission:   domain.CollectionPermOwner,
-				GrantedBy:    input.CreatedBy,
+				GrantedBy:    ownerUser.ID,
 			}
 			if upsertErr := s.permRepo.Upsert(ctx, emailOwnerPerm); upsertErr != nil {
 				log.Printf("collectionService.Create: failed to grant owner permission to %s for collection %s: %v",
