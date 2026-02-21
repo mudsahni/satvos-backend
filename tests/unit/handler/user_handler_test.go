@@ -20,7 +20,7 @@ import (
 
 func newUserHandler() (*handler.UserHandler, *mocks.MockUserService) {
 	mockSvc := new(mocks.MockUserService)
-	h := handler.NewUserHandler(mockSvc)
+	h := handler.NewUserHandler(mockSvc, nil)
 	return h, mockSvc
 }
 

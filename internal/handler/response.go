@@ -122,6 +122,12 @@ func MapDomainError(err error) (status int, code, msg string) {
 		return http.StatusUnauthorized, "INVALID_API_KEY", "invalid API key"
 	case errors.Is(err, domain.ErrAPIKeyRevoked):
 		return http.StatusUnauthorized, "API_KEY_REVOKED", "API key has been revoked or expired"
+	case errors.Is(err, domain.ErrInvitationPending):
+		return http.StatusForbidden, "INVITATION_PENDING", "please check your email and accept the invitation to set your password"
+	case errors.Is(err, domain.ErrInvitationTokenInvalid):
+		return http.StatusUnauthorized, "INVALID_INVITATION_TOKEN", "invitation token is invalid, expired, or has already been used"
+	case errors.Is(err, domain.ErrInvitationAlreadyAccepted):
+		return http.StatusBadRequest, "INVITATION_ALREADY_ACCEPTED", "invitation has already been accepted"
 	default:
 		return http.StatusInternalServerError, "INTERNAL_ERROR", "an internal error occurred"
 	}

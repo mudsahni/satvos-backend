@@ -20,3 +20,8 @@ func (m *MockEmailSender) SendPasswordResetEmail(ctx context.Context, toEmail, t
 	args := m.Called(ctx, toEmail, toName, resetToken)
 	return args.Error(0)
 }
+
+func (m *MockEmailSender) SendInvitationEmail(ctx context.Context, toEmail, toName, roleName, invitationToken string) error {
+	args := m.Called(ctx, toEmail, toName, roleName, invitationToken)
+	return args.Error(0)
+}

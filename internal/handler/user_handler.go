@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -12,12 +13,13 @@ import (
 
 // UserHandler handles user management endpoints.
 type UserHandler struct {
-	userService service.UserService
+	userService       service.UserService
+	invitationService service.InvitationService
 }
 
 // NewUserHandler creates a new UserHandler.
-func NewUserHandler(userService service.UserService) *UserHandler {
-	return &UserHandler{userService: userService}
+func NewUserHandler(userService service.UserService, invitationService service.InvitationService) *UserHandler {
+	return &UserHandler{userService: userService, invitationService: invitationService}
 }
 
 // Create handles POST /api/v1/users
@@ -47,10 +49,23 @@ func (h *UserHandler) Create(c *gin.Context) {
 		return
 	}
 
+	// Reject passwordless creation when invitations aren't enabled
+	if input.Password == "" && h.invitationService == nil {
+		RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "password is required when invitations are not enabled")
+		return
+	}
+
 	user, err := h.userService.Create(c.Request.Context(), tenantID, input)
 	if err != nil {
 		HandleError(c, err)
 		return
+	}
+
+	// If no password was provided, send invitation email (non-blocking)
+	if input.Password == "" {
+		if invErr := h.invitationService.SendInvitation(c.Request.Context(), user); invErr != nil {
+			log.Printf("WARNING: failed to send invitation to %s: %v", user.Email, invErr)
+		}
 	}
 
 	RespondCreated(c, user)
@@ -218,4 +233,31 @@ func (h *UserHandler) Delete(c *gin.Context) {
 	}
 
 	RespondOK(c, gin.H{"message": "user deleted"})
+}
+
+// ResendInvitation handles POST /api/v1/users/:id/resend-invitation
+func (h *UserHandler) ResendInvitation(c *gin.Context) {
+	if h.invitationService == nil {
+		RespondError(c, http.StatusNotFound, "NOT_FOUND", "invitations not enabled")
+		return
+	}
+
+	tenantID, err := middleware.GetTenantID(c)
+	if err != nil {
+		RespondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "missing tenant context")
+		return
+	}
+
+	userID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		RespondError(c, http.StatusBadRequest, "INVALID_ID", "invalid user ID")
+		return
+	}
+
+	if err := h.invitationService.ResendInvitation(c.Request.Context(), tenantID, userID); err != nil {
+		HandleError(c, err)
+		return
+	}
+
+	RespondOK(c, gin.H{"message": "invitation resent"})
 }

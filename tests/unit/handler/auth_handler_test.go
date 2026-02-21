@@ -25,7 +25,7 @@ func init() {
 
 func TestAuthHandler_Login_Success(t *testing.T) {
 	mockAuth := new(mocks.MockAuthService)
-	h := handler.NewAuthHandler(mockAuth, nil, nil, nil)
+	h := handler.NewAuthHandler(mockAuth, nil, nil, nil, nil)
 
 	tokenPair := &service.TokenPair{
 		AccessToken:  "access-token",
@@ -63,7 +63,7 @@ func TestAuthHandler_Login_Success(t *testing.T) {
 
 func TestAuthHandler_Login_InvalidCredentials(t *testing.T) {
 	mockAuth := new(mocks.MockAuthService)
-	h := handler.NewAuthHandler(mockAuth, nil, nil, nil)
+	h := handler.NewAuthHandler(mockAuth, nil, nil, nil, nil)
 
 	mockAuth.On("Login", mock.Anything, mock.AnythingOfType("service.LoginInput")).
 		Return(nil, domain.ErrInvalidCredentials)
@@ -86,7 +86,7 @@ func TestAuthHandler_Login_InvalidCredentials(t *testing.T) {
 
 func TestAuthHandler_Login_ValidationError(t *testing.T) {
 	mockAuth := new(mocks.MockAuthService)
-	h := handler.NewAuthHandler(mockAuth, nil, nil, nil)
+	h := handler.NewAuthHandler(mockAuth, nil, nil, nil, nil)
 
 	// Missing required fields
 	body, _ := json.Marshal(map[string]string{
@@ -105,7 +105,7 @@ func TestAuthHandler_Login_ValidationError(t *testing.T) {
 
 func TestAuthHandler_RefreshToken_Success(t *testing.T) {
 	mockAuth := new(mocks.MockAuthService)
-	h := handler.NewAuthHandler(mockAuth, nil, nil, nil)
+	h := handler.NewAuthHandler(mockAuth, nil, nil, nil, nil)
 
 	tokenPair := &service.TokenPair{
 		AccessToken:  "new-access-token",
@@ -133,7 +133,7 @@ func TestAuthHandler_RefreshToken_Success(t *testing.T) {
 func TestAuthHandler_VerifyEmail_Success(t *testing.T) {
 	mockAuth := new(mocks.MockAuthService)
 	mockReg := new(mocks.MockRegistrationService)
-	h := handler.NewAuthHandler(mockAuth, mockReg, nil, nil)
+	h := handler.NewAuthHandler(mockAuth, mockReg, nil, nil, nil)
 
 	mockReg.On("VerifyEmail", mock.Anything, "valid-token-string").Return(nil)
 
@@ -154,7 +154,7 @@ func TestAuthHandler_VerifyEmail_Success(t *testing.T) {
 func TestAuthHandler_VerifyEmail_MissingToken(t *testing.T) {
 	mockAuth := new(mocks.MockAuthService)
 	mockReg := new(mocks.MockRegistrationService)
-	h := handler.NewAuthHandler(mockAuth, mockReg, nil, nil)
+	h := handler.NewAuthHandler(mockAuth, mockReg, nil, nil, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -168,7 +168,7 @@ func TestAuthHandler_VerifyEmail_MissingToken(t *testing.T) {
 func TestAuthHandler_VerifyEmail_InvalidToken(t *testing.T) {
 	mockAuth := new(mocks.MockAuthService)
 	mockReg := new(mocks.MockRegistrationService)
-	h := handler.NewAuthHandler(mockAuth, mockReg, nil, nil)
+	h := handler.NewAuthHandler(mockAuth, mockReg, nil, nil, nil)
 
 	mockReg.On("VerifyEmail", mock.Anything, "invalid-token").Return(domain.ErrUnauthorized)
 
@@ -184,7 +184,7 @@ func TestAuthHandler_VerifyEmail_InvalidToken(t *testing.T) {
 
 func TestAuthHandler_VerifyEmail_RegistrationDisabled(t *testing.T) {
 	mockAuth := new(mocks.MockAuthService)
-	h := handler.NewAuthHandler(mockAuth, nil, nil, nil) // nil registration service
+	h := handler.NewAuthHandler(mockAuth, nil, nil, nil, nil) // nil registration service
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -198,7 +198,7 @@ func TestAuthHandler_VerifyEmail_RegistrationDisabled(t *testing.T) {
 func TestAuthHandler_ResendVerification_Success(t *testing.T) {
 	mockAuth := new(mocks.MockAuthService)
 	mockReg := new(mocks.MockRegistrationService)
-	h := handler.NewAuthHandler(mockAuth, mockReg, nil, nil)
+	h := handler.NewAuthHandler(mockAuth, mockReg, nil, nil, nil)
 
 	tenantID := uuid.New()
 	userID := uuid.New()
@@ -221,7 +221,7 @@ func TestAuthHandler_ResendVerification_Success(t *testing.T) {
 func TestAuthHandler_ForgotPassword_Success(t *testing.T) {
 	mockAuth := new(mocks.MockAuthService)
 	mockPwReset := new(mocks.MockPasswordResetService)
-	h := handler.NewAuthHandler(mockAuth, nil, mockPwReset, nil)
+	h := handler.NewAuthHandler(mockAuth, nil, mockPwReset, nil, nil)
 
 	mockPwReset.On("ForgotPassword", mock.Anything, service.ForgotPasswordInput{
 		TenantSlug: "test-tenant",
@@ -251,7 +251,7 @@ func TestAuthHandler_ForgotPassword_Success(t *testing.T) {
 func TestAuthHandler_ForgotPassword_MissingFields(t *testing.T) {
 	mockAuth := new(mocks.MockAuthService)
 	mockPwReset := new(mocks.MockPasswordResetService)
-	h := handler.NewAuthHandler(mockAuth, nil, mockPwReset, nil)
+	h := handler.NewAuthHandler(mockAuth, nil, mockPwReset, nil, nil)
 
 	// Missing email
 	body, _ := json.Marshal(map[string]string{
@@ -271,7 +271,7 @@ func TestAuthHandler_ForgotPassword_MissingFields(t *testing.T) {
 func TestAuthHandler_ForgotPassword_AlwaysReturns200(t *testing.T) {
 	mockAuth := new(mocks.MockAuthService)
 	mockPwReset := new(mocks.MockPasswordResetService)
-	h := handler.NewAuthHandler(mockAuth, nil, mockPwReset, nil)
+	h := handler.NewAuthHandler(mockAuth, nil, mockPwReset, nil, nil)
 
 	// Service returns nil even for non-existent user (by design)
 	mockPwReset.On("ForgotPassword", mock.Anything, mock.AnythingOfType("service.ForgotPasswordInput")).Return(nil)
@@ -295,7 +295,7 @@ func TestAuthHandler_ForgotPassword_AlwaysReturns200(t *testing.T) {
 func TestAuthHandler_ResetPassword_Success(t *testing.T) {
 	mockAuth := new(mocks.MockAuthService)
 	mockPwReset := new(mocks.MockPasswordResetService)
-	h := handler.NewAuthHandler(mockAuth, nil, mockPwReset, nil)
+	h := handler.NewAuthHandler(mockAuth, nil, mockPwReset, nil, nil)
 
 	mockPwReset.On("ResetPassword", mock.Anything, service.ResetPasswordInput{
 		Token:       "valid-reset-token",
@@ -325,7 +325,7 @@ func TestAuthHandler_ResetPassword_Success(t *testing.T) {
 func TestAuthHandler_ResetPassword_MissingFields(t *testing.T) {
 	mockAuth := new(mocks.MockAuthService)
 	mockPwReset := new(mocks.MockPasswordResetService)
-	h := handler.NewAuthHandler(mockAuth, nil, mockPwReset, nil)
+	h := handler.NewAuthHandler(mockAuth, nil, mockPwReset, nil, nil)
 
 	// Missing new_password
 	body, _ := json.Marshal(map[string]string{
@@ -345,7 +345,7 @@ func TestAuthHandler_ResetPassword_MissingFields(t *testing.T) {
 func TestAuthHandler_ResetPassword_InvalidToken(t *testing.T) {
 	mockAuth := new(mocks.MockAuthService)
 	mockPwReset := new(mocks.MockPasswordResetService)
-	h := handler.NewAuthHandler(mockAuth, nil, mockPwReset, nil)
+	h := handler.NewAuthHandler(mockAuth, nil, mockPwReset, nil, nil)
 
 	mockPwReset.On("ResetPassword", mock.Anything, mock.AnythingOfType("service.ResetPasswordInput")).
 		Return(domain.ErrPasswordResetTokenInvalid)
@@ -368,7 +368,7 @@ func TestAuthHandler_ResetPassword_InvalidToken(t *testing.T) {
 
 func TestAuthHandler_ForgotPassword_Disabled(t *testing.T) {
 	mockAuth := new(mocks.MockAuthService)
-	h := handler.NewAuthHandler(mockAuth, nil, nil, nil) // nil password reset service
+	h := handler.NewAuthHandler(mockAuth, nil, nil, nil, nil) // nil password reset service
 
 	body, _ := json.Marshal(map[string]string{
 		"tenant_slug": "test-tenant",

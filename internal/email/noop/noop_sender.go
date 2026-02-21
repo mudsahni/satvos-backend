@@ -29,3 +29,9 @@ func (s *noopSender) SendPasswordResetEmail(_ context.Context, toEmail, toName, 
 	log.Printf("[NOOP EMAIL] Password reset for %s (%s): %s", toName, toEmail, resetURL)
 	return nil
 }
+
+func (s *noopSender) SendInvitationEmail(_ context.Context, toEmail, toName, roleName, invitationToken string) error {
+	inviteURL := fmt.Sprintf("%s/accept-invitation?token=%s", s.frontendURL, url.QueryEscape(invitationToken))
+	log.Printf("[NOOP EMAIL] Invitation for %s (%s) as %s: %s", toName, toEmail, roleName, inviteURL)
+	return nil
+}

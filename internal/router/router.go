@@ -57,6 +57,7 @@ func Setup(
 	auth.POST("/forgot-password", authH.ForgotPassword)
 	auth.POST("/reset-password", authH.ResetPassword)
 	auth.POST("/social-login", authH.SocialLogin)
+	auth.POST("/accept-invitation", authH.AcceptInvitation)
 
 	// Protected routes - require valid JWT or API key
 	protected := v1.Group("")
@@ -135,6 +136,7 @@ func Setup(
 	users.GET("/:id", userH.GetByID)
 	users.PUT("/:id", userH.Update)
 	users.DELETE("/:id", middleware.RequireRole(domain.RoleAdmin), userH.Delete)
+	users.POST("/:id/resend-invitation", middleware.RequireRole(domain.RoleAdmin), userH.ResendInvitation)
 
 	// Service account management (admin only)
 	sa := protected.Group("/service-accounts")

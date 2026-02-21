@@ -15,11 +15,12 @@ type AuthHandler struct {
 	registrationService  service.RegistrationService
 	passwordResetService service.PasswordResetService
 	socialAuthService    service.SocialAuthService
+	invitationService    service.InvitationService
 }
 
 // NewAuthHandler creates a new AuthHandler.
-func NewAuthHandler(authService service.AuthService, registrationService service.RegistrationService, passwordResetService service.PasswordResetService, socialAuthService service.SocialAuthService) *AuthHandler {
-	return &AuthHandler{authService: authService, registrationService: registrationService, passwordResetService: passwordResetService, socialAuthService: socialAuthService}
+func NewAuthHandler(authService service.AuthService, registrationService service.RegistrationService, passwordResetService service.PasswordResetService, socialAuthService service.SocialAuthService, invitationService service.InvitationService) *AuthHandler {
+	return &AuthHandler{authService: authService, registrationService: registrationService, passwordResetService: passwordResetService, socialAuthService: socialAuthService, invitationService: invitationService}
 }
 
 // Login handles POST /api/v1/auth/login
@@ -266,4 +267,26 @@ func (h *AuthHandler) ResendVerification(c *gin.Context) {
 	}
 
 	RespondOK(c, gin.H{"message": "verification email sent"})
+}
+
+// AcceptInvitation handles POST /api/v1/auth/accept-invitation
+func (h *AuthHandler) AcceptInvitation(c *gin.Context) {
+	if h.invitationService == nil {
+		RespondError(c, http.StatusNotFound, "NOT_FOUND", "invitations not enabled")
+		return
+	}
+
+	var input service.AcceptInvitationInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
+
+	output, err := h.invitationService.AcceptInvitation(c.Request.Context(), input)
+	if err != nil {
+		HandleError(c, err)
+		return
+	}
+
+	RespondOK(c, output)
 }
