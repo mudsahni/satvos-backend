@@ -10,6 +10,22 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      lambda: ${{ steps.filter.outputs.lambda }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            lambda:
+              - 'lambda/ses_invoice_processor/**'
+              - 'lambda/requirements.txt'
+              - 'lambda/tests/**'
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
@@ -59,3 +75,21 @@ jobs:
 
       - name: Verify binary exists
         run: test -f bin/server
+
+  lambda-test:
+    name: Lambda Test
+    needs: changes
+    if: needs.changes.outputs.lambda == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r lambda/requirements.txt -r lambda/requirements-dev.txt
+
+      - name: Run Lambda tests
+        run: cd lambda && PYTHONPATH=. pytest tests/ -v
