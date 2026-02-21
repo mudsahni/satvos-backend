@@ -37,7 +37,7 @@ internal/
     errors.go                Sentinel errors (ErrNotFound, ErrForbidden, ErrQuotaExceeded, etc.)
   handler/
     auth_handler.go          login, refresh, register, verify-email, resend-verification, forgot/reset-password, social-login, accept-invitation
-    service_account_handler.go  CRUD /service-accounts, rotate-key, revoke, permissions (admin only)
+    service_account_handler.go  CRUD /service-accounts, rotate-key, revoke, permissions. GET list/detail open to all paid roles; write operations admin-only
     file_handler.go          upload, list, get, delete (free/service: own files only)
     collection_handler.go    CRUD, batch upload, permissions, CSV export, Tally XML export
     document_handler.go      CRUD, retry, review, assignment, review-queue, validation, tags, search, structured-data edit, audit trail
