@@ -37,11 +37,11 @@ internal/
     errors.go                Sentinel errors (ErrNotFound, ErrForbidden, ErrQuotaExceeded, etc.)
   handler/
     auth_handler.go          login, refresh, register, verify-email, resend-verification, forgot/reset-password, social-login, accept-invitation
-    service_account_handler.go  CRUD /service-accounts, rotate-key, revoke, permissions (admin only)
+    service_account_handler.go  CRUD /service-accounts, rotate-key, revoke, permissions. GET list/detail open to all paid roles; write operations admin-only
     file_handler.go          upload, list, get, delete (free/service: own files only)
     collection_handler.go    CRUD, batch upload, permissions, CSV export, Tally XML export
     document_handler.go      CRUD, retry, review, assignment, review-queue, validation, tags, search, structured-data edit, audit trail
-    user_handler.go          CRUD /users, resend-invitation (admin)
+    user_handler.go          CRUD /users, resend-invitation (admin). GET /users open to all paid roles (admin/manager/member/viewer). GET /users/:id open to any authenticated tenant user
     tenant_handler.go        CRUD /admin/tenants
     report_handler.go        7 report endpoints under /reports (sellers, buyers, party-ledger, financial/tax/hsn-summary, collections-overview)
     stats_handler.go         GET /stats (tenant-scoped, role-filtered)
@@ -217,6 +217,7 @@ The `logic.invoice.duplicate` validator uses three match tiers:
 - **Tenant isolation**: Every DB query includes `tenant_id` from JWT claims
 - **Error mapping**: Domain errors → HTTP codes in `handler/response.go`
 - **Tenant roles**: admin (level 4, implicit owner) > manager (3, editor) > member (2, viewer) > viewer (1, no implicit) > free (0, no implicit) > service (0, no implicit, separate permission table). Effective perm = `max(implicit, explicit)`. No cap — explicit owner grant on a viewer is respected. Service accounts use `service_account_permissions` table instead of `collection_permissions`. Helpers: `RoleLevel()`, `ImplicitCollectionPerm()`, `ServiceAccountCollectionPerm()`
+- **User directory visibility**: `GET /users` is open to admin/manager/member/viewer (not free/service). `GET /users/:id` is open to any authenticated tenant user. Sensitive fields (`password_hash`, `password_reset_token_id`, `provider_user_id`) are hidden via `json:"-"` tags. This allows the frontend to resolve user IDs (e.g., collection `created_by`, document `assigned_to`) to names
 - **Free tier**: Self-registration → shared "satvos" tenant, `free` role, personal collection (owner), per-user monthly quota (default 5). File listing filtered by uploader. Quota: `CheckAndIncrementQuota()` atomic SQL, 30-day period, `limit=0` → unlimited
 - **Registration**: `POST /auth/register` → `RegistrationService` creates user + collection + tokens + sends verification email. Email failure doesn't fail registration. Disable by passing nil `RegistrationService` to `NewAuthHandler`
 - **Email verification**: JWT `"email-verification"` audience, 24h expiry. `RequireEmailVerified` middleware checks DB for `free` role only. Gates: `POST /files/upload`, `POST /documents`. Config: `SATVOS_EMAIL_PROVIDER` ("ses"/"noop"), `SATVOS_EMAIL_FROM_ADDRESS`, `SATVOS_EMAIL_FRONTEND_URL`
