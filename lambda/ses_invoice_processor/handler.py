@@ -18,6 +18,7 @@ from .tenant_config import TenantConfigStore, extract_email_address, extract_ten
 logger = logging.getLogger("ses_invoice_processor")
 
 
+# Primary Function
 def lambda_handler(event: dict, context) -> dict:
     """Process an SES inbound email event.
 
