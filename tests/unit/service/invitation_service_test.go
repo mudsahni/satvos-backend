@@ -462,7 +462,7 @@ func TestInvitationService_ResendInvitation_AlreadyAccepted(t *testing.T) {
 
 	err := svc.ResendInvitation(ctx, tenantID, userID)
 
-	assert.ErrorIs(t, err, domain.ErrInvitationTokenInvalid)
+	assert.ErrorIs(t, err, domain.ErrInvitationAlreadyAccepted)
 }
 
 func TestInvitationService_ResendInvitation_GoogleUser(t *testing.T) {
@@ -487,5 +487,5 @@ func TestInvitationService_ResendInvitation_GoogleUser(t *testing.T) {
 
 	err := svc.ResendInvitation(ctx, tenantID, userID)
 
-	assert.ErrorIs(t, err, domain.ErrInvitationTokenInvalid)
+	assert.ErrorIs(t, err, domain.ErrInvitationAlreadyAccepted)
 }

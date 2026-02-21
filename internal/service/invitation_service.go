@@ -81,10 +81,10 @@ func (s *invitationService) ResendInvitation(ctx context.Context, tenantID, user
 
 	// Only resend if user hasn't set a password yet (still pending)
 	if user.PasswordHash != "" {
-		return domain.ErrInvitationTokenInvalid
+		return domain.ErrInvitationAlreadyAccepted
 	}
 	if user.AuthProvider == domain.AuthProviderGoogle {
-		return domain.ErrInvitationTokenInvalid
+		return domain.ErrInvitationAlreadyAccepted
 	}
 
 	return s.SendInvitation(ctx, user)

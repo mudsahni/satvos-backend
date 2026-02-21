@@ -49,14 +49,20 @@ func (h *UserHandler) Create(c *gin.Context) {
 		return
 	}
 
+	// Reject passwordless creation when invitations aren't enabled
+	if input.Password == "" && h.invitationService == nil {
+		RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "password is required when invitations are not enabled")
+		return
+	}
+
 	user, err := h.userService.Create(c.Request.Context(), tenantID, input)
 	if err != nil {
 		HandleError(c, err)
 		return
 	}
 
-	// If no password was provided and invitation service is available, send invitation
-	if input.Password == "" && h.invitationService != nil {
+	// If no password was provided, send invitation email (non-blocking)
+	if input.Password == "" {
 		if invErr := h.invitationService.SendInvitation(c.Request.Context(), user); invErr != nil {
 			log.Printf("WARNING: failed to send invitation to %s: %v", user.Email, invErr)
 		}

@@ -36,12 +36,12 @@ internal/
                              ReviewStatus, ValidationStatus, ReconciliationStatus, ParseMode, AuthProvider, AuditAction, etc.
     errors.go                Sentinel errors (ErrNotFound, ErrForbidden, ErrQuotaExceeded, etc.)
   handler/
-    auth_handler.go          login, refresh, register, verify-email, resend-verification, forgot/reset-password, social-login
+    auth_handler.go          login, refresh, register, verify-email, resend-verification, forgot/reset-password, social-login, accept-invitation
     service_account_handler.go  CRUD /service-accounts, rotate-key, revoke, permissions (admin only)
     file_handler.go          upload, list, get, delete (free/service: own files only)
     collection_handler.go    CRUD, batch upload, permissions, CSV export, Tally XML export
     document_handler.go      CRUD, retry, review, assignment, review-queue, validation, tags, search, structured-data edit, audit trail
-    user_handler.go          CRUD /users
+    user_handler.go          CRUD /users, resend-invitation (admin)
     tenant_handler.go        CRUD /admin/tenants
     report_handler.go        7 report endpoints under /reports (sellers, buyers, party-ledger, financial/tax/hsn-summary, collections-overview)
     stats_handler.go         GET /stats (tenant-scoped, role-filtered)
@@ -57,6 +57,7 @@ internal/
     social_auth_service.go   Google social login (verify token, auto-link, auto-register)
     registration_service.go  Free-tier registration, email verification (VerifyEmail, ResendVerification)
     password_reset_service.go ForgotPassword, ResetPassword (JWT "password-reset" audience, 1h, single-use jti)
+    invitation_service.go    SendInvitation, ResendInvitation, AcceptInvitation (JWT "invitation" audience, 72h, single-use jti)
     file_service.go          Upload (validate + S3 + DB), download URL, delete, ListByUploader
     collection_service.go    CRUD, batch upload, permission checking, EffectivePermission(s)
     document_service.go      CRUD, background LLM parsing, retry, review, assignment, review-queue, validation, tags, quota enforcement, audit trail, summary upsert
@@ -74,7 +75,7 @@ internal/
     document_summary_repository.go DocumentSummaryRepository interface (Upsert, UpdateStatuses)
     report_repository.go     ReportRepository interface (7 aggregation queries)
     stats_repository.go      StatsRepository interface
-    email.go                 EmailSender interface (SendVerificationEmail, SendPasswordResetEmail)
+    email.go                 EmailSender interface (SendVerificationEmail, SendPasswordResetEmail, SendInvitationEmail)
     document_parser.go       DocumentParser interface (Parse) with ParseInput/ParseOutput DTOs
     hsn_repository.go        HSNRepository interface (LoadAll for in-memory cache)
     duplicate_finder.go      DuplicateInvoiceFinder interface
@@ -220,6 +221,7 @@ The `logic.invoice.duplicate` validator uses three match tiers:
 - **Registration**: `POST /auth/register` → `RegistrationService` creates user + collection + tokens + sends verification email. Email failure doesn't fail registration. Disable by passing nil `RegistrationService` to `NewAuthHandler`
 - **Email verification**: JWT `"email-verification"` audience, 24h expiry. `RequireEmailVerified` middleware checks DB for `free` role only. Gates: `POST /files/upload`, `POST /documents`. Config: `SATVOS_EMAIL_PROVIDER` ("ses"/"noop"), `SATVOS_EMAIL_FROM_ADDRESS`, `SATVOS_EMAIL_FRONTEND_URL`
 - **Password reset**: `POST /auth/forgot-password` (always 200, no enumeration) → `POST /auth/reset-password` (single-use via `password_reset_token_id` jti). Does NOT invalidate existing tokens
+- **User invitation**: Admin creates user without password → `InvitationService.SendInvitation` generates JWT (`"invitation"` audience, 72h, single-use jti via `password_reset_token_id` column) and sends email. User clicks link → `POST /auth/accept-invitation` (public) sets password, marks `email_verified=true`, auto-logs in. Old flow (admin provides password) still works — `email_verified=true`, no email. `POST /users/:id/resend-invitation` (admin) generates new token. Invited users who try to login get `ErrInvitationPending`. ForgotPassword silently skips invited users (they need invitation, not reset). Handler guards against passwordless creation when `invitationService` is nil
 - **Social login**: `POST /auth/social-login` (Google only). Frontend sends ID token → backend validates via `SocialTokenVerifier`. Auto-links if email matches existing user. Auto-verifies email. New users get personal collection. Config: `SATVOS_GOOGLE_AUTH_CLIENT_ID` (empty = disabled). Only for free-tier tenant. OAuth-only users (`password_hash=""`) blocked from password login (`ErrPasswordLoginNotAllowed`)
 - **Collections**: Permission-based (owner/editor/viewer) + role hierarchy. `document_count` computed via SQL subquery. `EffectivePermissions` batch-optimized. `SetPermission` validates target user belongs to same tenant. `Create` accepts optional `owner_email` — if set, looks up user by email in the same tenant and grants them owner permission (non-blocking: user not found or upsert failure is logged and skipped, never fails creation)
 - **CSV export**: `GET /collections/:id/export/csv` — 33 columns, reconciliation fields first, UTF-8 BOM, batched 200 docs
@@ -250,6 +252,7 @@ Go 1.24, Gin, PostgreSQL 16 (sqlx + pgx/v5), AWS S3 (aws-sdk-go-v2), AWS SES v2,
 - **Modifying free tier**: Quota in `SATVOS_FREE_TIER_MONTHLY_LIMIT`. Registration in `service/registration_service.go`. Quota SQL in `repository/postgres/user_repo.go`. File isolation in `handler/file_handler.go`
 - **Modifying email verification**: Service in `registration_service.go`. Middleware in `middleware/auth.go`. Sender in `port/email.go` → `email/ses/` or `email/noop/`
 - **Modifying password reset**: Service in `service/password_reset_service.go`. Repo in `repository/postgres/user_repo.go`. Handler in `handler/auth_handler.go`
+- **Modifying user invitation**: Service in `service/invitation_service.go`. Repo `AcceptInvitation` in `repository/postgres/user_repo.go`. Auth handler `AcceptInvitation` in `handler/auth_handler.go`. User handler `ResendInvitation` in `handler/user_handler.go`. Email in `port/email.go` → `email/ses/` or `email/noop/`. Routes: `POST /auth/accept-invitation` (public), `POST /users/:id/resend-invitation` (admin)
 - **Adding a social login provider**: Implement `port.SocialTokenVerifier` in `auth/<provider>/`, register in `main.go` verifiers map, add `AuthProvider` const in `domain/enums.go`
 - **Modifying service accounts**: Model in `domain/models.go` (`ServiceAccount`). Port in `port/service_account_repository.go`. Repo in `repository/postgres/service_account_repo.go`. Service in `service/service_account_service.go`. Handler in `handler/service_account_handler.go`. Routes in `router/router.go` (`service-accounts` group). Auth middleware in `middleware/auth.go` (API key path). Permission helper in `service/permission_helper.go` (`ServiceAccountCollectionPerm`)
 - **Modifying audit trail**: Domain in `domain/enums.go` (`AuditAction` consts). Port in `port/document_audit_repository.go`. Repo in `repository/postgres/document_audit_repo.go`. Service helper in `document_service.go` (`audit()` method). Handler in `document_handler.go` (`ListAudit`). Add new actions: add const to `domain/enums.go`, add `s.audit(...)` call in service method
@@ -269,7 +272,8 @@ Go 1.24, Gin, PostgreSQL 16 (sqlx + pgx/v5), AWS S3 (aws-sdk-go-v2), AWS SES v2,
 - **Free role in RequireRole**: Must be explicitly added. Currently allowed on: `POST /files/upload`, `POST /documents`
 - **Email verification does DB lookup per request** for free users (acceptable for free-tier volume)
 - **Password reset doesn't invalidate sessions** — tokens expire naturally
-- **`NewAuthHandler` takes 4 params**: `(authService, registrationService, passwordResetService, socialAuthService)` — any can be nil
+- **`NewAuthHandler` takes 5 params**: `(authService, registrationService, passwordResetService, socialAuthService, invitationService)` — any can be nil
+- **`NewUserHandler` takes 2 params**: `(userService, invitationService)` — invitationService can be nil (passwordless creation rejected when nil)
 - **Audit trail non-blocking**: `audit()` helper logs errors but never fails the parent operation. Audit repo is nil-safe (skipped when nil). No FK constraints on audit table — entries survive document/user/tenant deletion
 - **`NewCollectionService` takes 6 params**: `(collectionRepo, collectionPermissionRepo, collectionFileRepo, fileService, userRepo, saPermRepo)` — saPermRepo is optional (nil-safe) for SA collection access
 - **`NewTenantService` takes 2 params**: `(tenantRepo, serviceAccountService)` — saSvc is optional (nil-safe), triggers auto-creation of `inbound_email` SA on tenant creation
@@ -282,4 +286,5 @@ Go 1.24, Gin, PostgreSQL 16 (sqlx + pgx/v5), AWS S3 (aws-sdk-go-v2), AWS SES v2,
 - **Tally XML uses text/template**: Not `encoding/xml` — Tally element names like `ALLINVENTORYENTRIES.LIST` don't work with Go's xml struct tags. Template parsed at `init()`. Custom `xmlEscape` func handles `&<>"'` in dynamic values
 - **Tally amount signs**: Party ledger = positive (credit), tax ledgers = negative (debit), inventory = negative (debit). `ISDEEMEDPOSITIVE` = `"Yes"` for debit entries
 - **Duplicate detection uses document_summaries for FY matching**: Tier-2 (strong) matching JOINs `document_summaries` for the parsed `invoice_date` timestamp, avoiding JSONB date parsing in SQL. Summary must exist for tier-2 to match (non-blocking upsert means brief window where strong match may not fire for just-parsed docs)
+- **Invitation reuses `password_reset_token_id`**: Invitation tokens use the same jti column as password reset tokens — no migration needed. States are sequential (invitation consumed before forgot-password is possible), so no conflict. `PasswordHash == ""` with `AuthProvider != "google"` unambiguously means "invited, pending acceptance"
 - **Stale processing docs**: Server crash mid-parse → doc stuck in `processing` (no staleness detector yet)
