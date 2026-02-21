@@ -103,14 +103,13 @@ func (h *UserHandler) List(c *gin.Context) {
 
 // GetByID handles GET /api/v1/users/:id
 // @Summary Get user by ID
-// @Description Get user details (self or admin access)
+// @Description Get user details. Any authenticated user in the tenant can view any other user's profile.
 // @Tags users
 // @Produce json
 // @Param id path string true "User ID (UUID)"
 // @Success 200 {object} Response{data=domain.User} "User details"
 // @Failure 400 {object} ErrorResponseBody "Invalid ID"
 // @Failure 401 {object} ErrorResponseBody "Unauthorized"
-// @Failure 403 {object} ErrorResponseBody "Forbidden"
 // @Failure 404 {object} ErrorResponseBody "User not found"
 // @Security BearerAuth
 // @Router /users/{id} [get]
@@ -124,14 +123,6 @@ func (h *UserHandler) GetByID(c *gin.Context) {
 	userID, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		RespondError(c, http.StatusBadRequest, "INVALID_ID", "invalid user ID")
-		return
-	}
-
-	// Allow self-access or admin access
-	currentUserID, _ := middleware.GetUserID(c)
-	currentRole := middleware.GetRole(c)
-	if currentUserID != userID && currentRole != "admin" {
-		RespondError(c, http.StatusForbidden, "FORBIDDEN", "insufficient permissions")
 		return
 	}
 

@@ -241,11 +241,21 @@ func TestUserHandler_GetByID_AdminAccess(t *testing.T) {
 }
 
 func TestUserHandler_GetByID_MemberAccessOtherUser(t *testing.T) {
-	h, _ := newUserHandler()
+	h, mockSvc := newUserHandler()
 
 	tenantID := uuid.New()
 	memberID := uuid.New()
 	otherUserID := uuid.New()
+
+	expected := &domain.User{
+		ID:       otherUserID,
+		TenantID: tenantID,
+		Email:    "other@acme.com",
+		FullName: "Other User",
+		Role:     domain.RoleViewer,
+	}
+
+	mockSvc.On("GetByID", mock.Anything, tenantID, otherUserID).Return(expected, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -255,7 +265,37 @@ func TestUserHandler_GetByID_MemberAccessOtherUser(t *testing.T) {
 
 	h.GetByID(c)
 
-	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.Equal(t, http.StatusOK, w.Code)
+	mockSvc.AssertExpectations(t)
+}
+
+func TestUserHandler_GetByID_ViewerAccessOtherUser(t *testing.T) {
+	h, mockSvc := newUserHandler()
+
+	tenantID := uuid.New()
+	viewerID := uuid.New()
+	otherUserID := uuid.New()
+
+	expected := &domain.User{
+		ID:       otherUserID,
+		TenantID: tenantID,
+		Email:    "other@acme.com",
+		FullName: "Other User",
+		Role:     domain.RoleAdmin,
+	}
+
+	mockSvc.On("GetByID", mock.Anything, tenantID, otherUserID).Return(expected, nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest(http.MethodGet, "/api/v1/users/"+otherUserID.String(), http.NoBody)
+	c.Params = gin.Params{{Key: "id", Value: otherUserID.String()}}
+	setAuthContext(c, tenantID, viewerID, "viewer")
+
+	h.GetByID(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	mockSvc.AssertExpectations(t)
 }
 
 func TestUserHandler_GetByID_InvalidID(t *testing.T) {

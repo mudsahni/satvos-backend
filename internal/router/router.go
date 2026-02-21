@@ -132,7 +132,7 @@ func Setup(
 	// User management (tenant-scoped)
 	users := protected.Group("/users")
 	users.POST("", middleware.RequireRole(domain.RoleAdmin), userH.Create)
-	users.GET("", middleware.RequireRole(domain.RoleAdmin), userH.List)
+	users.GET("", middleware.RequireRole(domain.RoleAdmin, domain.RoleManager, domain.RoleMember, domain.RoleViewer), userH.List)
 	users.GET("/:id", userH.GetByID)
 	users.PUT("/:id", userH.Update)
 	users.DELETE("/:id", middleware.RequireRole(domain.RoleAdmin), userH.Delete)
