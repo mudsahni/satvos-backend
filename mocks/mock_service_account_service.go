@@ -80,6 +80,19 @@ func (m *MockServiceAccountService) EnsureInboundEmailServiceAccount(ctx context
 	return args.String(0), args.Error(1)
 }
 
+func (m *MockServiceAccountService) GetOrCreateInboundEmailKey(ctx context.Context, tenantID, callerID uuid.UUID) (string, error) {
+	args := m.Called(ctx, tenantID, callerID)
+	return args.String(0), args.Error(1)
+}
+
+func (m *MockServiceAccountService) GetInboundEmailAccount(ctx context.Context, tenantID uuid.UUID) (*domain.ServiceAccount, error) {
+	args := m.Called(ctx, tenantID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.ServiceAccount), args.Error(1)
+}
+
 func (m *MockServiceAccountService) Authenticate(ctx context.Context, rawKey string) (*domain.ServiceAccount, error) {
 	args := m.Called(ctx, rawKey)
 	if args.Get(0) == nil {

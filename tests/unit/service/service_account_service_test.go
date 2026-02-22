@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -250,6 +251,98 @@ func TestServiceAccountService_Revoke(t *testing.T) {
 
 		err := svc.Revoke(context.Background(), tenantID, saID)
 		assert.ErrorIs(t, err, domain.ErrServiceAccountNotFound)
+		saRepo.AssertExpectations(t)
+	})
+}
+
+func TestServiceAccountService_GetOrCreateInboundEmailKey(t *testing.T) {
+	t.Run("newly_created", func(t *testing.T) {
+		saRepo, _, _, svc := setupServiceAccountService()
+
+		tenantID := uuid.New()
+		callerID := uuid.New()
+
+		// EnsureInboundEmailServiceAccount creates new SA and returns raw key
+		saRepo.On("GetByName", mock.Anything, tenantID, "inbound_email").
+			Return(nil, domain.ErrServiceAccountNotFound)
+		saRepo.On("Create", mock.Anything, mock.AnythingOfType("*domain.ServiceAccount")).Return(nil)
+
+		rawKey, err := svc.GetOrCreateInboundEmailKey(context.Background(), tenantID, callerID)
+		require.NoError(t, err)
+		assert.NotEmpty(t, rawKey)
+		assert.Contains(t, rawKey, "sk_")
+		saRepo.AssertExpectations(t)
+	})
+
+	t.Run("already_exists_rotates", func(t *testing.T) {
+		saRepo, _, _, svc := setupServiceAccountService()
+
+		tenantID := uuid.New()
+		callerID := uuid.New()
+		saID := uuid.New()
+
+		existingSA := &domain.ServiceAccount{
+			ID:       saID,
+			TenantID: tenantID,
+			Name:     "inbound_email",
+			IsActive: true,
+		}
+
+		// EnsureInboundEmailServiceAccount finds existing SA, returns ""
+		saRepo.On("GetByName", mock.Anything, tenantID, "inbound_email").Return(existingSA, nil)
+
+		// GetOrCreateInboundEmailKey looks up SA again then rotates
+		saRepo.On("RotateKey", mock.Anything, tenantID, saID, mock.AnythingOfType("string"), mock.AnythingOfType("string")).
+			Return(&domain.ServiceAccount{
+				ID:       saID,
+				TenantID: tenantID,
+				Name:     "inbound_email",
+				IsActive: true,
+			}, nil)
+
+		rawKey, err := svc.GetOrCreateInboundEmailKey(context.Background(), tenantID, callerID)
+		require.NoError(t, err)
+		assert.NotEmpty(t, rawKey)
+		assert.Contains(t, rawKey, "sk_")
+		saRepo.AssertExpectations(t)
+	})
+
+	t.Run("ensure_fails", func(t *testing.T) {
+		saRepo, _, _, svc := setupServiceAccountService()
+
+		tenantID := uuid.New()
+		callerID := uuid.New()
+
+		saRepo.On("GetByName", mock.Anything, tenantID, "inbound_email").
+			Return(nil, fmt.Errorf("db error"))
+
+		_, err := svc.GetOrCreateInboundEmailKey(context.Background(), tenantID, callerID)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "db error")
+		saRepo.AssertExpectations(t)
+	})
+
+	t.Run("rotate_fails", func(t *testing.T) {
+		saRepo, _, _, svc := setupServiceAccountService()
+
+		tenantID := uuid.New()
+		callerID := uuid.New()
+		saID := uuid.New()
+
+		existingSA := &domain.ServiceAccount{
+			ID:       saID,
+			TenantID: tenantID,
+			Name:     "inbound_email",
+			IsActive: true,
+		}
+
+		saRepo.On("GetByName", mock.Anything, tenantID, "inbound_email").Return(existingSA, nil)
+		saRepo.On("RotateKey", mock.Anything, tenantID, saID, mock.AnythingOfType("string"), mock.AnythingOfType("string")).
+			Return(nil, fmt.Errorf("rotate failed"))
+
+		_, err := svc.GetOrCreateInboundEmailKey(context.Background(), tenantID, callerID)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "rotate")
 		saRepo.AssertExpectations(t)
 	})
 }

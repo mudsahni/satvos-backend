@@ -73,6 +73,13 @@ type ServiceAccountService interface {
 	// EnsureInboundEmailServiceAccount idempotently creates an "inbound_email" SA for a tenant.
 	// Returns the raw API key if created, or "" if already exists.
 	EnsureInboundEmailServiceAccount(ctx context.Context, tenantID, createdBy uuid.UUID) (string, error)
+
+	// GetOrCreateInboundEmailKey returns a raw API key for the inbound_email SA.
+	// Creates the SA if needed; rotates the key if the SA already exists (raw key is only available at creation/rotation).
+	GetOrCreateInboundEmailKey(ctx context.Context, tenantID, callerID uuid.UUID) (string, error)
+
+	// GetInboundEmailAccount returns the inbound_email SA for a tenant, or ErrServiceAccountNotFound.
+	GetInboundEmailAccount(ctx context.Context, tenantID uuid.UUID) (*domain.ServiceAccount, error)
 }
 
 type serviceAccountService struct {
@@ -277,6 +284,37 @@ func (s *serviceAccountService) EnsureInboundEmailServiceAccount(ctx context.Con
 		return "", fmt.Errorf("creating inbound_email SA: %w", err)
 	}
 	return output.APIKey, nil
+}
+
+func (s *serviceAccountService) GetOrCreateInboundEmailKey(ctx context.Context, tenantID, callerID uuid.UUID) (string, error) {
+	rawKey, err := s.EnsureInboundEmailServiceAccount(ctx, tenantID, callerID)
+	if err != nil {
+		return "", err
+	}
+	if rawKey != "" {
+		// Newly created — raw key available
+		return rawKey, nil
+	}
+
+	// SA already exists — rotate to get a fresh raw key.
+	// WARNING: This invalidates the previous key. If the Lambda is using the old key,
+	// it will fail until its cache expires (~5 minutes) and it reads the new key from DynamoDB.
+	log.Printf("WARNING: rotating inbound_email SA key for tenant %s — any active Lambda using the old key will fail until cache expires", tenantID)
+
+	sa, err := s.saRepo.GetByName(ctx, tenantID, "inbound_email")
+	if err != nil {
+		return "", fmt.Errorf("looking up inbound_email SA: %w", err)
+	}
+
+	rotateOut, err := s.RotateAPIKey(ctx, tenantID, sa.ID)
+	if err != nil {
+		return "", fmt.Errorf("rotating inbound_email SA key: %w", err)
+	}
+	return rotateOut.APIKey, nil
+}
+
+func (s *serviceAccountService) GetInboundEmailAccount(ctx context.Context, tenantID uuid.UUID) (*domain.ServiceAccount, error) {
+	return s.saRepo.GetByName(ctx, tenantID, "inbound_email")
 }
 
 // generateAPIKey creates a new random API key and returns (rawKey, sha256Hash, prefix).

@@ -44,6 +44,7 @@ internal/
     user_handler.go          CRUD /users, resend-invitation (admin). GET /users open to all paid roles (admin/manager/member/viewer). GET /users/:id open to any authenticated tenant user
     tenant_handler.go        CRUD /admin/tenants
     report_handler.go        7 report endpoints under /reports (sellers, buyers, party-ledger, financial/tax/hsn-summary, collections-overview)
+    email_config_handler.go  GET/PUT /admin/email-config (DynamoDB-backed, nil-safe when disabled)
     stats_handler.go         GET /stats (tenant-scoped, role-filtered)
     health_handler.go        GET /healthz, GET /readyz
     response.go              Standard envelope (success/data/error/meta) + error mapping
@@ -66,6 +67,7 @@ internal/
     stats_service.go         Aggregate stats (role-branching)
     user_service.go          User CRUD (tenant-scoped)
     tenant_service.go        Tenant CRUD
+    email_config_service.go  Email processing config CRUD, auto-create DynamoDB entry, allowed_senders validation
   port/
     repository.go            TenantRepo, UserRepo (CheckAndIncrementQuota, GetByProviderID, LinkProvider), FileMetaRepo interfaces
     social_auth.go           SocialTokenVerifier interface, SocialAuthClaims DTO
@@ -79,8 +81,11 @@ internal/
     document_parser.go       DocumentParser interface (Parse) with ParseInput/ParseOutput DTOs
     hsn_repository.go        HSNRepository interface (LoadAll for in-memory cache)
     duplicate_finder.go      DuplicateInvoiceFinder interface
+    email_config_repository.go TenantEmailConfigRepository interface (Get, Put, UpdateConfig) + TenantEmailConfig DTO
     storage.go               ObjectStorage interface (Upload, Download, Delete, GetPresignedURL)
   repository/postgres/       SQL implementations for all port interfaces
+  repository/dynamodb/
+    email_config_repo.go     DynamoDB adapter for TenantEmailConfigRepository
   email/
     ses/ses_sender.go        AWS SES v2 EmailSender implementation
     noop/noop_sender.go      No-op EmailSender (logs URL to stdout)
@@ -210,6 +215,21 @@ The `logic.invoice.duplicate` validator uses three match tiers:
 - **DB tables**: `service_accounts` (keys, metadata), `service_account_permissions` (collection grants)
 - **Migration**: `000025_create_service_accounts.up.sql`
 
+## Email Processing Config (DynamoDB)
+
+- **Purpose**: Admin-managed config for Lambda-based inbound email processing. Controls `enabled` and `allowed_senders` per tenant
+- **Storage**: DynamoDB table `satvos-email-processor-tenants` (PK: `tenant_slug`). Fields: `tenant_slug`, `service_api_key`, `enabled`, `allowed_senders`, `api_base_url`
+- **Endpoints**: `GET/PUT /api/v1/admin/email-config` (admin-only). Auto-creates DynamoDB entry on first access
+- **Auto-creation**: On first GET/PUT, creates DynamoDB entry + `inbound_email` service account. Starts `enabled=false`, empty `allowed_senders`
+- **Key rotation caveat**: If SA exists but DynamoDB entry doesn't, key is rotated to get a raw key for DynamoDB. This invalidates the old key — Lambda fails until its 5-minute cache expires
+- **Nil-safe**: `emailConfigSvc=nil` when `SATVOS_DYNAMODB_TABLE_NAME` is empty. Handler returns 404
+- **Validation**: `allowed_senders` entries must be `*` (wildcard), `@domain.com` (domain), or `user@domain.com` (email). Trimmed, lowercased, deduplicated. Display-name forms like `"Name <email>"` are rejected. Domain validation via regex (TLD >= 2 chars)
+- **Inbound address**: `inbound_address` field stored in DynamoDB, exposed read-only in GET response. Set manually in DynamoDB or by future automation. Empty on auto-create. Not settable via PUT
+- **Service account enrichment**: GET response includes `service_account` summary (id, name, is_active, api_key_prefix) by looking up the `inbound_email` SA from PostgreSQL. Best-effort — omitted if SA not found
+- **Config**: `SATVOS_DYNAMODB_TABLE_NAME` (empty = disabled), `SATVOS_DYNAMODB_REGION` (default: `ap-south-1`), `SATVOS_DYNAMODB_ENDPOINT` (LocalStack), `SATVOS_DYNAMODB_ACCESS_KEY`/`SECRET_KEY`, `SATVOS_SERVER_API_BASE_URL` (default: `http://localhost:8080`)
+- **DynamoDB adapter**: `ConditionExpression: "attribute_exists(tenant_slug)"` on `UpdateConfig` prevents phantom item creation
+- **Files**: Port in `port/email_config_repository.go`, adapter in `repository/dynamodb/email_config_repo.go`, service in `service/email_config_service.go`, handler in `handler/email_config_handler.go`
+
 ## Key Conventions
 
 - **Env config**: All `SATVOS_` prefixed. See `internal/config/config.go` for all vars and defaults
@@ -238,7 +258,7 @@ The `logic.invoice.duplicate` validator uses three match tiers:
 
 ## Tech Stack
 
-Go 1.24, Gin, PostgreSQL 16 (sqlx + pgx/v5), AWS S3 (aws-sdk-go-v2), AWS SES v2, JWT (golang-jwt/v5), bcrypt, Viper, golang-migrate, Docker/Compose, LocalStack, Claude/Gemini/OpenAI APIs
+Go 1.24, Gin, PostgreSQL 16 (sqlx + pgx/v5), AWS S3 (aws-sdk-go-v2), AWS DynamoDB (aws-sdk-go-v2), AWS SES v2, JWT (golang-jwt/v5), bcrypt, Viper, golang-migrate, Docker/Compose, LocalStack, Claude/Gemini/OpenAI APIs
 
 ## Important Files for Common Tasks
 
@@ -256,6 +276,7 @@ Go 1.24, Gin, PostgreSQL 16 (sqlx + pgx/v5), AWS S3 (aws-sdk-go-v2), AWS SES v2,
 - **Modifying user invitation**: Service in `service/invitation_service.go`. Repo `AcceptInvitation` in `repository/postgres/user_repo.go`. Auth handler `AcceptInvitation` in `handler/auth_handler.go`. User handler `ResendInvitation` in `handler/user_handler.go`. Email in `port/email.go` → `email/ses/` or `email/noop/`. Routes: `POST /auth/accept-invitation` (public), `POST /users/:id/resend-invitation` (admin)
 - **Adding a social login provider**: Implement `port.SocialTokenVerifier` in `auth/<provider>/`, register in `main.go` verifiers map, add `AuthProvider` const in `domain/enums.go`
 - **Modifying service accounts**: Model in `domain/models.go` (`ServiceAccount`). Port in `port/service_account_repository.go`. Repo in `repository/postgres/service_account_repo.go`. Service in `service/service_account_service.go`. Handler in `handler/service_account_handler.go`. Routes in `router/router.go` (`service-accounts` group). Auth middleware in `middleware/auth.go` (API key path). Permission helper in `service/permission_helper.go` (`ServiceAccountCollectionPerm`)
+- **Modifying email config**: Port in `port/email_config_repository.go`. DynamoDB adapter in `repository/dynamodb/email_config_repo.go`. Service in `service/email_config_service.go`. Handler in `handler/email_config_handler.go`. Config in `config/config.go` (`DynamoDBConfig`). Wiring in `cmd/server/main.go`. Validation in `validateAndNormalizeAllowedSenders()` in the service file
 - **Modifying audit trail**: Domain in `domain/enums.go` (`AuditAction` consts). Port in `port/document_audit_repository.go`. Repo in `repository/postgres/document_audit_repo.go`. Service helper in `document_service.go` (`audit()` method). Handler in `document_handler.go` (`ListAudit`). Add new actions: add const to `domain/enums.go`, add `s.audit(...)` call in service method
 - **Modifying reports**: Domain row types in `domain/models.go`. Port in `port/report_repository.go`. Repo queries in `repository/postgres/report_repo.go`. Service in `service/report_service.go`. Handler in `handler/report_handler.go`. Routes in `router/router.go` (`reports` group). Summary table in `repository/postgres/document_summary_repo.go`. Backfill CLI in `cmd/backfill/main.go`
 
@@ -280,7 +301,7 @@ Go 1.24, Gin, PostgreSQL 16 (sqlx + pgx/v5), AWS S3 (aws-sdk-go-v2), AWS SES v2,
 - **`NewTenantService` takes 2 params**: `(tenantRepo, serviceAccountService)` — saSvc is optional (nil-safe), triggers auto-creation of `inbound_email` SA on tenant creation
 - **`NewDocumentHandler` takes 2 params**: `(documentService, auditRepo)` — auditRepo used for direct read in `ListAudit`
 - **`NewDocumentService` takes 10 params**: `(docRepo, fileRepo, userRepo, permRepo, tagRepo, docParser, storage, validationEngine, auditRepo, summaryRepo)` — summaryRepo can be nil
-- **`router.Setup` takes 14 params**: `(authSvc, authH, fileH, tenantH, userH, healthH, collectionH, documentH, statsH, reportH, serviceAccountH, corsOrigins, userRepo, saSvc)`
+- **`router.Setup` takes 15 params**: `(authSvc, authH, fileH, tenantH, userH, healthH, collectionH, documentH, statsH, reportH, serviceAccountH, emailConfigH, corsOrigins, userRepo, saSvc)`
 - **Summary upsert non-blocking**: Same pattern as audit — `upsertSummary`/`updateSummaryStatuses` log errors but never fail the parent operation. Nil summaryRepo is safe
 - **HSN report queries JSONB directly**: The `hsn-summary` report uses `jsonb_array_elements` on `documents.structured_data` rather than the summary table, since line items aren't denormalized
 - **ReportFilters is a pointer**: `*domain.ReportFilters` (120 bytes) — gocritic hugeParam lint requires pointer passing
@@ -289,3 +310,7 @@ Go 1.24, Gin, PostgreSQL 16 (sqlx + pgx/v5), AWS S3 (aws-sdk-go-v2), AWS SES v2,
 - **Duplicate detection uses document_summaries for FY matching**: Tier-2 (strong) matching JOINs `document_summaries` for the parsed `invoice_date` timestamp, avoiding JSONB date parsing in SQL. Summary must exist for tier-2 to match (non-blocking upsert means brief window where strong match may not fire for just-parsed docs)
 - **Invitation reuses `password_reset_token_id`**: Invitation tokens use the same jti column as password reset tokens — no migration needed. States are sequential (invitation consumed before forgot-password is possible), so no conflict. `PasswordHash == ""` with `AuthProvider != "google"` unambiguously means "invited, pending acceptance"
 - **Stale processing docs**: Server crash mid-parse → doc stuck in `processing` (no staleness detector yet)
+- **DynamoDB email config nil-safe**: `emailConfigSvc=nil` when `SATVOS_DYNAMODB_TABLE_NAME` is empty. Handler returns 404, no crash. `NewEmailConfigHandler(nil)` is safe
+- **`NewEmailConfigService` takes 4 params**: `(emailConfigRepo, tenantRepo, saSvc, apiBaseURL)`
+- **DynamoDB `UpdateConfig` has ConditionExpression**: `attribute_exists(tenant_slug)` prevents creating phantom items. Always call `getOrCreateEntry` first
+- **SA key rotation on auto-create**: `GetOrCreateInboundEmailKey` rotates the key if SA already exists. This breaks the Lambda for ~5 minutes until cache expires. Logged as WARNING
