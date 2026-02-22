@@ -23,6 +23,7 @@ type emailConfigItem struct {
 	Enabled        bool     `dynamodbav:"enabled"`
 	AllowedSenders []string `dynamodbav:"allowed_senders"`
 	APIBaseURL     string   `dynamodbav:"api_base_url"`
+	InboundAddress string   `dynamodbav:"inbound_address,omitempty"`
 }
 
 // EmailConfigRepo implements port.TenantEmailConfigRepository backed by DynamoDB.
@@ -86,6 +87,7 @@ func (r *EmailConfigRepo) Get(ctx context.Context, tenantSlug string) (*port.Ten
 		Enabled:        item.Enabled,
 		AllowedSenders: item.AllowedSenders,
 		APIBaseURL:     item.APIBaseURL,
+		InboundAddress: item.InboundAddress,
 	}, nil
 }
 
@@ -96,6 +98,7 @@ func (r *EmailConfigRepo) Put(ctx context.Context, item *port.TenantEmailConfig)
 		Enabled:        item.Enabled,
 		AllowedSenders: item.AllowedSenders,
 		APIBaseURL:     item.APIBaseURL,
+		InboundAddress: item.InboundAddress,
 	}
 
 	av, err := attributevalue.MarshalMap(ddbItem)

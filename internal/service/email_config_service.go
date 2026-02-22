@@ -24,12 +24,22 @@ type UpdateEmailConfigInput struct {
 	AllowedSenders *[]string `json:"allowed_senders"`
 }
 
+// EmailConfigServiceAccount is a summary of the service account tied to email processing.
+type EmailConfigServiceAccount struct {
+	ID           uuid.UUID `json:"id"`
+	Name         string    `json:"name"`
+	IsActive     bool      `json:"is_active"`
+	APIKeyPrefix string    `json:"api_key_prefix"`
+}
+
 // EmailConfigOutput is the API response DTO for email processing config.
 type EmailConfigOutput struct {
-	TenantSlug     string   `json:"tenant_slug"`
-	Enabled        bool     `json:"enabled"`
-	AllowedSenders []string `json:"allowed_senders"`
-	APIBaseURL     string   `json:"api_base_url"`
+	TenantSlug     string                     `json:"tenant_slug"`
+	Enabled        bool                       `json:"enabled"`
+	AllowedSenders []string                   `json:"allowed_senders"`
+	APIBaseURL     string                     `json:"api_base_url"`
+	InboundAddress string                     `json:"inbound_address,omitempty"`
+	ServiceAccount *EmailConfigServiceAccount `json:"service_account,omitempty"`
 }
 
 // EmailConfigService defines the contract for managing tenant email processing config.
@@ -71,7 +81,9 @@ func (s *emailConfigService) GetConfig(ctx context.Context, tenantID uuid.UUID) 
 		return nil, err
 	}
 
-	return emailConfigToOutput(cfg), nil
+	out := emailConfigToOutput(cfg)
+	out.ServiceAccount = s.lookupInboundSA(ctx, tenantID)
+	return out, nil
 }
 
 func (s *emailConfigService) UpdateConfig(ctx context.Context, tenantID, callerID uuid.UUID, input UpdateEmailConfigInput) (*EmailConfigOutput, error) {
@@ -115,7 +127,9 @@ func (s *emailConfigService) UpdateConfig(ctx context.Context, tenantID, callerI
 		return nil, fmt.Errorf("reading email config after update: %w", err)
 	}
 
-	return emailConfigToOutput(cfg), nil
+	out := emailConfigToOutput(cfg)
+	out.ServiceAccount = s.lookupInboundSA(ctx, tenantID)
+	return out, nil
 }
 
 // getOrCreateEntry returns the existing config or auto-creates it.
@@ -156,6 +170,20 @@ func (s *emailConfigService) getOrCreateEntry(ctx context.Context, tenant *domai
 	return cfg, nil
 }
 
+// lookupInboundSA returns a summary of the inbound_email SA, or nil if not found.
+func (s *emailConfigService) lookupInboundSA(ctx context.Context, tenantID uuid.UUID) *EmailConfigServiceAccount {
+	sa, err := s.saSvc.GetInboundEmailAccount(ctx, tenantID)
+	if err != nil {
+		return nil
+	}
+	return &EmailConfigServiceAccount{
+		ID:           sa.ID,
+		Name:         sa.Name,
+		IsActive:     sa.IsActive,
+		APIKeyPrefix: sa.APIKeyPrefix,
+	}
+}
+
 func emailConfigToOutput(cfg *port.TenantEmailConfig) *EmailConfigOutput {
 	senders := cfg.AllowedSenders
 	if senders == nil {
@@ -166,6 +194,7 @@ func emailConfigToOutput(cfg *port.TenantEmailConfig) *EmailConfigOutput {
 		Enabled:        cfg.Enabled,
 		AllowedSenders: senders,
 		APIBaseURL:     cfg.APIBaseURL,
+		InboundAddress: cfg.InboundAddress,
 	}
 }
 

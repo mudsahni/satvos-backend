@@ -77,6 +77,9 @@ type ServiceAccountService interface {
 	// GetOrCreateInboundEmailKey returns a raw API key for the inbound_email SA.
 	// Creates the SA if needed; rotates the key if the SA already exists (raw key is only available at creation/rotation).
 	GetOrCreateInboundEmailKey(ctx context.Context, tenantID, callerID uuid.UUID) (string, error)
+
+	// GetInboundEmailAccount returns the inbound_email SA for a tenant, or ErrServiceAccountNotFound.
+	GetInboundEmailAccount(ctx context.Context, tenantID uuid.UUID) (*domain.ServiceAccount, error)
 }
 
 type serviceAccountService struct {
@@ -308,6 +311,10 @@ func (s *serviceAccountService) GetOrCreateInboundEmailKey(ctx context.Context, 
 		return "", fmt.Errorf("rotating inbound_email SA key: %w", err)
 	}
 	return rotateOut.APIKey, nil
+}
+
+func (s *serviceAccountService) GetInboundEmailAccount(ctx context.Context, tenantID uuid.UUID) (*domain.ServiceAccount, error) {
+	return s.saRepo.GetByName(ctx, tenantID, "inbound_email")
 }
 
 // generateAPIKey creates a new random API key and returns (rawKey, sha256Hash, prefix).

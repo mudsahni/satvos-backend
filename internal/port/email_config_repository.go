@@ -9,6 +9,7 @@ type TenantEmailConfig struct {
 	Enabled        bool     `json:"enabled"`
 	AllowedSenders []string `json:"allowed_senders"`
 	APIBaseURL     string   `json:"api_base_url"`
+	InboundAddress string   `json:"inbound_address"`
 }
 
 // TenantEmailConfigRepository defines operations for managing tenant email processing config in DynamoDB.

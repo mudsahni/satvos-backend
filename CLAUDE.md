@@ -224,6 +224,8 @@ The `logic.invoice.duplicate` validator uses three match tiers:
 - **Key rotation caveat**: If SA exists but DynamoDB entry doesn't, key is rotated to get a raw key for DynamoDB. This invalidates the old key — Lambda fails until its 5-minute cache expires
 - **Nil-safe**: `emailConfigSvc=nil` when `SATVOS_DYNAMODB_TABLE_NAME` is empty. Handler returns 404
 - **Validation**: `allowed_senders` entries must be `*` (wildcard), `@domain.com` (domain), or `user@domain.com` (email). Trimmed, lowercased, deduplicated. Display-name forms like `"Name <email>"` are rejected. Domain validation via regex (TLD >= 2 chars)
+- **Inbound address**: `inbound_address` field stored in DynamoDB, exposed read-only in GET response. Set manually in DynamoDB or by future automation. Empty on auto-create. Not settable via PUT
+- **Service account enrichment**: GET response includes `service_account` summary (id, name, is_active, api_key_prefix) by looking up the `inbound_email` SA from PostgreSQL. Best-effort — omitted if SA not found
 - **Config**: `SATVOS_DYNAMODB_TABLE_NAME` (empty = disabled), `SATVOS_DYNAMODB_REGION` (default: `ap-south-1`), `SATVOS_DYNAMODB_ENDPOINT` (LocalStack), `SATVOS_DYNAMODB_ACCESS_KEY`/`SECRET_KEY`, `SATVOS_SERVER_API_BASE_URL` (default: `http://localhost:8080`)
 - **DynamoDB adapter**: `ConditionExpression: "attribute_exists(tenant_slug)"` on `UpdateConfig` prevents phantom item creation
 - **Files**: Port in `port/email_config_repository.go`, adapter in `repository/dynamodb/email_config_repo.go`, service in `service/email_config_service.go`, handler in `handler/email_config_handler.go`

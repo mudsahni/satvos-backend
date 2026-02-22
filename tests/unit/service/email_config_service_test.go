@@ -19,6 +19,9 @@ func newEmailConfigService() (service.EmailConfigService, *mocks.MockEmailConfig
 	repo := new(mocks.MockEmailConfigRepo)
 	tenantRepo := new(mocks.MockTenantRepo)
 	saSvc := new(mocks.MockServiceAccountService)
+	// Default: SA lookup returns not-found (best-effort, doesn't affect main flow)
+	saSvc.On("GetInboundEmailAccount", mock.Anything, mock.Anything).
+		Return(nil, domain.ErrServiceAccountNotFound).Maybe()
 	svc := service.NewEmailConfigService(repo, tenantRepo, saSvc, "https://api.satvos.com")
 	return svc, repo, tenantRepo, saSvc
 }
@@ -85,6 +88,68 @@ func TestEmailConfigService_GetConfig_NoEntry_AutoCreates(t *testing.T) {
 	assert.Empty(t, out.AllowedSenders)
 	saSvc.AssertExpectations(t)
 	repo.AssertExpectations(t)
+}
+
+func TestEmailConfigService_GetConfig_InboundAddressAndServiceAccount(t *testing.T) {
+	// Build manually to control GetInboundEmailAccount mock
+	repo := new(mocks.MockEmailConfigRepo)
+	tenantRepo := new(mocks.MockTenantRepo)
+	saSvc := new(mocks.MockServiceAccountService)
+	svc := service.NewEmailConfigService(repo, tenantRepo, saSvc, "https://api.satvos.com")
+
+	tenantID := uuid.New()
+	saID := uuid.New()
+	tenant := &domain.Tenant{ID: tenantID, Slug: "acme"}
+	tenantRepo.On("GetByID", mock.Anything, tenantID).Return(tenant, nil)
+
+	existing := &port.TenantEmailConfig{
+		TenantSlug:     "acme",
+		Enabled:        true,
+		AllowedSenders: []string{"@acme.com"},
+		APIBaseURL:     "https://api.satvos.com",
+		InboundAddress: "invoices@acme.satvos.com",
+	}
+	repo.On("Get", mock.Anything, "acme").Return(existing, nil)
+
+	saSvc.On("GetInboundEmailAccount", mock.Anything, tenantID).Return(&domain.ServiceAccount{
+		ID:           saID,
+		Name:         "inbound_email",
+		IsActive:     true,
+		APIKeyPrefix: "abc12345",
+	}, nil)
+
+	out, err := svc.GetConfig(context.Background(), tenantID)
+
+	assert.NoError(t, err)
+	assert.Equal(t, "invoices@acme.satvos.com", out.InboundAddress)
+	assert.NotNil(t, out.ServiceAccount)
+	assert.Equal(t, saID, out.ServiceAccount.ID)
+	assert.Equal(t, "inbound_email", out.ServiceAccount.Name)
+	assert.True(t, out.ServiceAccount.IsActive)
+	assert.Equal(t, "abc12345", out.ServiceAccount.APIKeyPrefix)
+	saSvc.AssertExpectations(t)
+}
+
+func TestEmailConfigService_GetConfig_ServiceAccountNotFound(t *testing.T) {
+	svc, repo, tenantRepo, _ := newEmailConfigService()
+
+	tenantID := uuid.New()
+	tenant := &domain.Tenant{ID: tenantID, Slug: "acme"}
+	tenantRepo.On("GetByID", mock.Anything, tenantID).Return(tenant, nil)
+
+	existing := &port.TenantEmailConfig{
+		TenantSlug:     "acme",
+		Enabled:        true,
+		AllowedSenders: []string{},
+		APIBaseURL:     "https://api.satvos.com",
+	}
+	repo.On("Get", mock.Anything, "acme").Return(existing, nil)
+
+	// Default mock returns not-found, so ServiceAccount should be nil
+	out, err := svc.GetConfig(context.Background(), tenantID)
+
+	assert.NoError(t, err)
+	assert.Nil(t, out.ServiceAccount)
 }
 
 func TestEmailConfigService_GetConfig_NoEntry_SAExists_RotatesKey(t *testing.T) {

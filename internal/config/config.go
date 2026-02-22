@@ -27,11 +27,11 @@ type Config struct {
 
 // DynamoDBConfig holds DynamoDB settings for email processing config.
 type DynamoDBConfig struct {
-	TableName string `mapstructure:"table_name"`
-	Region    string `mapstructure:"region"`
-	Endpoint  string `mapstructure:"endpoint"`
-	AccessKey string `mapstructure:"access_key"`
-	SecretKey string `mapstructure:"secret_key"`
+	TableName          string `mapstructure:"table_name"`
+	Region             string `mapstructure:"region"`
+	Endpoint           string `mapstructure:"endpoint"`
+	AccessKey          string `mapstructure:"access_key"`
+	SecretKey          string `mapstructure:"secret_key"`
 }
 
 // GoogleAuthConfig holds Google OAuth settings.
@@ -269,7 +269,6 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("dynamodb.endpoint", "")
 	v.SetDefault("dynamodb.access_key", "")
 	v.SetDefault("dynamodb.secret_key", "")
-
 	// Parser (legacy flat)
 	v.SetDefault("parser.provider", "claude")
 	v.SetDefault("parser.api_key", "")
@@ -504,10 +503,10 @@ func buildGoogleAuthConfig(v *viper.Viper) GoogleAuthConfig {
 
 func buildDynamoDBConfig(v *viper.Viper) DynamoDBConfig {
 	return DynamoDBConfig{
-		TableName: v.GetString("dynamodb.table_name"),
-		Region:    v.GetString("dynamodb.region"),
-		Endpoint:  v.GetString("dynamodb.endpoint"),
-		AccessKey: v.GetString("dynamodb.access_key"),
-		SecretKey: v.GetString("dynamodb.secret_key"),
+		TableName:          v.GetString("dynamodb.table_name"),
+		Region:             v.GetString("dynamodb.region"),
+		Endpoint:           v.GetString("dynamodb.endpoint"),
+		AccessKey:          v.GetString("dynamodb.access_key"),
+		SecretKey:          v.GetString("dynamodb.secret_key"),
 	}
 }
