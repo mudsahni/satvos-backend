@@ -101,6 +101,7 @@ func Setup(
 		middleware.RequireEmailVerified(userRepo),
 		documentH.Create)
 	documents.GET("", documentH.List)
+	documents.GET("/tags/facets", documentH.TagFacets)
 	documents.GET("/search/tags", documentH.SearchByTag)
 	documents.GET("/review-queue", documentH.ReviewQueue)
 	documents.GET("/:id", documentH.GetByID)

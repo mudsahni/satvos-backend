@@ -25,6 +25,7 @@ type CollectionPermissionRepository interface {
 	GetByCollectionAndUser(ctx context.Context, collectionID, userID uuid.UUID) (*domain.CollectionPermissionEntry, error)
 	GetByUserForCollections(ctx context.Context, userID uuid.UUID, collectionIDs []uuid.UUID) (map[uuid.UUID]domain.CollectionPermission, error)
 	ListByCollection(ctx context.Context, collectionID uuid.UUID, offset, limit int) ([]domain.CollectionPermissionEntry, int, error)
+	ListCollectionIDs(ctx context.Context, tenantID, userID uuid.UUID) ([]uuid.UUID, error)
 	Delete(ctx context.Context, collectionID, userID uuid.UUID) error
 }
 

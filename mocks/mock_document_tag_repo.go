@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"satvos/internal/domain"
+	"satvos/internal/port"
 )
 
 // MockDocumentTagRepo is a mock implementation of port.DocumentTagRepository.
@@ -33,6 +34,14 @@ func (m *MockDocumentTagRepo) SearchByTag(ctx context.Context, tenantID uuid.UUI
 		return nil, args.Int(1), args.Error(2)
 	}
 	return args.Get(0).([]domain.Document), args.Int(1), args.Error(2)
+}
+
+func (m *MockDocumentTagRepo) FacetsByKeys(ctx context.Context, tenantID uuid.UUID, keys []string, collectionIDs []uuid.UUID) (map[string][]port.TagFacet, error) {
+	args := m.Called(ctx, tenantID, keys, collectionIDs)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(map[string][]port.TagFacet), args.Error(1)
 }
 
 func (m *MockDocumentTagRepo) DeleteByID(ctx context.Context, documentID, tagID uuid.UUID) error {

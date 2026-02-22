@@ -111,6 +111,41 @@ func (r *documentTagRepo) DeleteByDocument(ctx context.Context, documentID uuid.
 	return nil
 }
 
+func (r *documentTagRepo) FacetsByKeys(ctx context.Context, tenantID uuid.UUID, keys []string, collectionIDs []uuid.UUID) (map[string][]port.TagFacet, error) {
+	result := make(map[string][]port.TagFacet, len(keys))
+	for _, key := range keys {
+		var facets []port.TagFacet
+		if len(collectionIDs) == 0 {
+			err := r.db.SelectContext(ctx, &facets,
+				`SELECT dt.value, COUNT(DISTINCT dt.document_id) as count
+				 FROM document_tags dt
+				 WHERE dt.tenant_id = $1 AND dt.key = $2
+				 GROUP BY dt.value ORDER BY count DESC`,
+				tenantID, key)
+			if err != nil {
+				return nil, fmt.Errorf("documentTagRepo.FacetsByKeys: %w", err)
+			}
+		} else {
+			query, args, err := sqlx.In(
+				`SELECT dt.value, COUNT(DISTINCT dt.document_id) as count
+				 FROM document_tags dt
+				 INNER JOIN documents d ON d.id = dt.document_id
+				 WHERE dt.tenant_id = ? AND dt.key = ? AND d.collection_id IN (?)
+				 GROUP BY dt.value ORDER BY count DESC`,
+				tenantID, key, collectionIDs)
+			if err != nil {
+				return nil, fmt.Errorf("documentTagRepo.FacetsByKeys expand IN: %w", err)
+			}
+			query = r.db.Rebind(query)
+			if err := r.db.SelectContext(ctx, &facets, query, args...); err != nil {
+				return nil, fmt.Errorf("documentTagRepo.FacetsByKeys: %w", err)
+			}
+		}
+		result[key] = facets
+	}
+	return result, nil
+}
+
 func (r *documentTagRepo) DeleteByDocumentAndSource(ctx context.Context, documentID uuid.UUID, source string) error {
 	_, err := r.db.ExecContext(ctx,
 		"DELETE FROM document_tags WHERE document_id = $1 AND source = $2", documentID, source)

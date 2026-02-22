@@ -65,7 +65,7 @@ func TestExportCSV_Success(t *testing.T) {
 
 	collSvc.On("GetByID", mock.Anything, tenantID, collectionID, userID, domain.UserRole("member")).
 		Return(collection, nil)
-	docSvc.On("ListByCollection", mock.Anything, tenantID, collectionID, userID, domain.UserRole("member"), (*uuid.UUID)(nil), 0, 200).
+	docSvc.On("ListByCollection", mock.Anything, tenantID, collectionID, userID, domain.UserRole("member"), mock.Anything, 0, 200).
 		Return(docs, 1, nil)
 
 	w := httptest.NewRecorder()
@@ -170,7 +170,7 @@ func TestExportCSV_EmptyCollection(t *testing.T) {
 
 	collSvc.On("GetByID", mock.Anything, tenantID, collectionID, userID, domain.UserRole("member")).
 		Return(collection, nil)
-	docSvc.On("ListByCollection", mock.Anything, tenantID, collectionID, userID, domain.UserRole("member"), (*uuid.UUID)(nil), 0, 200).
+	docSvc.On("ListByCollection", mock.Anything, tenantID, collectionID, userID, domain.UserRole("member"), mock.Anything, 0, 200).
 		Return([]domain.Document{}, 0, nil)
 
 	w := httptest.NewRecorder()
@@ -250,7 +250,7 @@ func TestExportTally_Success(t *testing.T) {
 
 	collSvc.On("GetByID", mock.Anything, tenantID, collectionID, userID, domain.UserRole("member")).
 		Return(collection, nil)
-	docSvc.On("ListByCollection", mock.Anything, tenantID, collectionID, userID, domain.UserRole("member"), (*uuid.UUID)(nil), 0, 200).
+	docSvc.On("ListByCollection", mock.Anything, tenantID, collectionID, userID, domain.UserRole("member"), mock.Anything, 0, 200).
 		Return(docs, 1, nil)
 
 	w := httptest.NewRecorder()
@@ -302,7 +302,7 @@ func TestExportTally_DefaultCompanyName(t *testing.T) {
 
 	collSvc.On("GetByID", mock.Anything, tenantID, collectionID, userID, domain.UserRole("member")).
 		Return(collection, nil)
-	docSvc.On("ListByCollection", mock.Anything, tenantID, collectionID, userID, domain.UserRole("member"), (*uuid.UUID)(nil), 0, 200).
+	docSvc.On("ListByCollection", mock.Anything, tenantID, collectionID, userID, domain.UserRole("member"), mock.Anything, 0, 200).
 		Return([]domain.Document{}, 0, nil)
 
 	w := httptest.NewRecorder()
@@ -379,7 +379,7 @@ func TestExportTally_EmptyCollection(t *testing.T) {
 
 	collSvc.On("GetByID", mock.Anything, tenantID, collectionID, userID, domain.UserRole("member")).
 		Return(collection, nil)
-	docSvc.On("ListByCollection", mock.Anything, tenantID, collectionID, userID, domain.UserRole("member"), (*uuid.UUID)(nil), 0, 200).
+	docSvc.On("ListByCollection", mock.Anything, tenantID, collectionID, userID, domain.UserRole("member"), mock.Anything, 0, 200).
 		Return([]domain.Document{}, 0, nil)
 
 	w := httptest.NewRecorder()

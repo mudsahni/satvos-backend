@@ -1102,6 +1102,13 @@ definitions:
         example: 2
         type: integer
     type: object
+  port.TagFacet:
+    properties:
+      count:
+        type: integer
+      value:
+        type: string
+    type: object
 host: localhost:8080
 info:
   contact:
@@ -2008,7 +2015,8 @@ paths:
       - collections
   /documents:
     get:
-      description: List documents with optional collection and assignment filters
+      description: List documents with optional collection, assignment, status, and
+        tag filters
       parameters:
       - default: 0
         description: Offset for pagination
@@ -2028,6 +2036,30 @@ paths:
         in: query
         name: assigned_to
         type: string
+      - description: Filter by seller name (exact match via tags)
+        in: query
+        name: seller_name
+        type: string
+      - description: Filter by buyer name (exact match via tags)
+        in: query
+        name: buyer_name
+        type: string
+      - description: Filter by parsing status
+        in: query
+        name: parsing_status
+        type: string
+      - description: Filter by review status
+        in: query
+        name: review_status
+        type: string
+      - description: Filter by validation status
+        in: query
+        name: validation_status
+        type: string
+      - description: Filter by reconciliation status
+        in: query
+        name: reconciliation_status
+        type: string
       produces:
       - application/json
       responses:
@@ -2045,7 +2077,7 @@ paths:
                   $ref: '#/definitions/handler.PagMeta'
               type: object
         "400":
-          description: Invalid collection_id or assigned_to
+          description: Invalid filter parameter
           schema:
             $ref: '#/definitions/handler.ErrorResponseBody'
         "401":
@@ -2747,6 +2779,44 @@ paths:
       security:
       - BearerAuth: []
       summary: Search documents by tag
+      tags:
+      - documents
+  /documents/tags/facets:
+    get:
+      description: Returns distinct tag values with document counts, role-scoped
+      parameters:
+      - description: Comma-separated tag keys (e.g. seller_name,buyer_name)
+        in: query
+        name: keys
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Tag facets
+          schema:
+            allOf:
+            - $ref: '#/definitions/handler.Response'
+            - properties:
+                data:
+                  additionalProperties:
+                    items:
+                      $ref: '#/definitions/port.TagFacet'
+                    type: array
+                  type: object
+              type: object
+        "400":
+          description: Invalid or missing keys
+          schema:
+            $ref: '#/definitions/handler.ErrorResponseBody'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handler.ErrorResponseBody'
+      security:
+      - BearerAuth: []
+      summary: Get tag facets for filter dropdowns
       tags:
       - documents
   /files:
@@ -3550,7 +3620,8 @@ paths:
       tags:
       - users
     get:
-      description: Get user details (self or admin access)
+      description: Get user details. Any authenticated user in the tenant can view
+        any other user's profile.
       parameters:
       - description: User ID (UUID)
         in: path
@@ -3575,10 +3646,6 @@ paths:
             $ref: '#/definitions/handler.ErrorResponseBody'
         "401":
           description: Unauthorized
-          schema:
-            $ref: '#/definitions/handler.ErrorResponseBody'
-        "403":
-          description: Forbidden
           schema:
             $ref: '#/definitions/handler.ErrorResponseBody'
         "404":

@@ -2,7 +2,9 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -122,15 +124,21 @@ func (h *DocumentHandler) GetByID(c *gin.Context) {
 
 // List handles GET /api/v1/documents
 // @Summary List documents
-// @Description List documents with optional collection and assignment filters
+// @Description List documents with optional collection, assignment, status, and tag filters
 // @Tags documents
 // @Produce json
 // @Param offset query int false "Offset for pagination" default(0)
 // @Param limit query int false "Limit for pagination (max 100)" default(20)
 // @Param collection_id query string false "Filter by collection ID"
 // @Param assigned_to query string false "Filter by assigned user ID"
+// @Param seller_name query string false "Filter by seller name (exact match via tags)"
+// @Param buyer_name query string false "Filter by buyer name (exact match via tags)"
+// @Param parsing_status query string false "Filter by parsing status"
+// @Param review_status query string false "Filter by review status"
+// @Param validation_status query string false "Filter by validation status"
+// @Param reconciliation_status query string false "Filter by reconciliation status"
 // @Success 200 {object} Response{data=[]domain.Document,meta=PagMeta} "List of documents"
-// @Failure 400 {object} ErrorResponseBody "Invalid collection_id or assigned_to"
+// @Failure 400 {object} ErrorResponseBody "Invalid filter parameter"
 // @Failure 401 {object} ErrorResponseBody "Unauthorized"
 // @Security BearerAuth
 // @Router /documents [get]
@@ -142,14 +150,37 @@ func (h *DocumentHandler) List(c *gin.Context) {
 
 	offset, limit := parsePagination(c)
 
-	var assignedTo *uuid.UUID
-	if assignedToStr := c.Query("assigned_to"); assignedToStr != "" {
-		parsed, err := uuid.Parse(assignedToStr)
+	filters := &port.DocumentListFilters{}
+
+	if v := c.Query("assigned_to"); v != "" {
+		parsed, err := uuid.Parse(v)
 		if err != nil {
 			RespondError(c, http.StatusBadRequest, "INVALID_ID", "invalid assigned_to")
 			return
 		}
-		assignedTo = &parsed
+		filters.AssignedTo = &parsed
+	}
+	if v := c.Query("seller_name"); v != "" {
+		filters.SellerName = &v
+	}
+	if v := c.Query("buyer_name"); v != "" {
+		filters.BuyerName = &v
+	}
+	if v := c.Query("parsing_status"); v != "" {
+		ps := domain.ParsingStatus(v)
+		filters.ParsingStatus = &ps
+	}
+	if v := c.Query("review_status"); v != "" {
+		rs := domain.ReviewStatus(v)
+		filters.ReviewStatus = &rs
+	}
+	if v := c.Query("validation_status"); v != "" {
+		vs := domain.ValidationStatus(v)
+		filters.ValidationStatus = &vs
+	}
+	if v := c.Query("reconciliation_status"); v != "" {
+		rs := domain.ReconciliationStatus(v)
+		filters.ReconciliationStatus = &rs
 	}
 
 	collectionIDStr := c.Query("collection_id")
@@ -159,7 +190,7 @@ func (h *DocumentHandler) List(c *gin.Context) {
 			RespondError(c, http.StatusBadRequest, "INVALID_ID", "invalid collection_id")
 			return
 		}
-		docs, total, err := h.documentService.ListByCollection(c.Request.Context(), tenantID, collectionID, userID, role, assignedTo, offset, limit)
+		docs, total, err := h.documentService.ListByCollection(c.Request.Context(), tenantID, collectionID, userID, role, filters, offset, limit)
 		if err != nil {
 			HandleError(c, err)
 			return
@@ -168,13 +199,62 @@ func (h *DocumentHandler) List(c *gin.Context) {
 		return
 	}
 
-	docs, total, err := h.documentService.ListByTenant(c.Request.Context(), tenantID, userID, role, assignedTo, offset, limit)
+	docs, total, err := h.documentService.ListByTenant(c.Request.Context(), tenantID, userID, role, filters, offset, limit)
 	if err != nil {
 		HandleError(c, err)
 		return
 	}
 
 	RespondPaginated(c, docs, PagMeta{Total: total, Offset: offset, Limit: limit})
+}
+
+// TagFacets handles GET /api/v1/documents/tags/facets
+// @Summary Get tag facets for filter dropdowns
+// @Description Returns distinct tag values with document counts, role-scoped
+// @Tags documents
+// @Produce json
+// @Param keys query string true "Comma-separated tag keys (e.g. seller_name,buyer_name)"
+// @Success 200 {object} Response{data=map[string][]port.TagFacet} "Tag facets"
+// @Failure 400 {object} ErrorResponseBody "Invalid or missing keys"
+// @Failure 401 {object} ErrorResponseBody "Unauthorized"
+// @Security BearerAuth
+// @Router /documents/tags/facets [get]
+func (h *DocumentHandler) TagFacets(c *gin.Context) {
+	tenantID, userID, role, ok := extractAuthContext(c)
+	if !ok {
+		return
+	}
+
+	keysStr := c.Query("keys")
+	if keysStr == "" {
+		RespondError(c, http.StatusBadRequest, "INVALID_REQUEST", "keys query parameter is required")
+		return
+	}
+
+	keys := strings.Split(keysStr, ",")
+	allowed := map[string]bool{
+		"seller_name":    true,
+		"buyer_name":     true,
+		"seller_gstin":   true,
+		"buyer_gstin":    true,
+		"invoice_type":   true,
+		"place_of_supply": true,
+	}
+	for _, k := range keys {
+		if !allowed[k] {
+			RespondError(c, http.StatusBadRequest, "INVALID_REQUEST",
+				fmt.Sprintf("invalid facet key %q", k))
+			return
+		}
+	}
+
+	facets, err := h.documentService.GetTagFacets(
+		c.Request.Context(), tenantID, userID, role, keys)
+	if err != nil {
+		HandleError(c, err)
+		return
+	}
+	RespondOK(c, facets)
 }
 
 // Retry handles POST /api/v1/documents/:id/retry
