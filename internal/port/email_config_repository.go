@@ -16,5 +16,7 @@ type TenantEmailConfig struct {
 type TenantEmailConfigRepository interface {
 	Get(ctx context.Context, tenantSlug string) (*TenantEmailConfig, error)
 	Put(ctx context.Context, item *TenantEmailConfig) error
+	// PutIfAbsent creates the item only if the key doesn't exist. Returns domain.ErrAlreadyExists on conflict.
+	PutIfAbsent(ctx context.Context, item *TenantEmailConfig) error
 	UpdateConfig(ctx context.Context, tenantSlug string, enabled bool, allowedSenders []string) error
 }

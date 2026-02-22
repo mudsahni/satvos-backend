@@ -26,6 +26,11 @@ func (m *MockEmailConfigRepo) Put(ctx context.Context, item *port.TenantEmailCon
 	return args.Error(0)
 }
 
+func (m *MockEmailConfigRepo) PutIfAbsent(ctx context.Context, item *port.TenantEmailConfig) error {
+	args := m.Called(ctx, item)
+	return args.Error(0)
+}
+
 func (m *MockEmailConfigRepo) UpdateConfig(ctx context.Context, tenantSlug string, enabled bool, allowedSenders []string) error {
 	args := m.Called(ctx, tenantSlug, enabled, allowedSenders)
 	return args.Error(0)
