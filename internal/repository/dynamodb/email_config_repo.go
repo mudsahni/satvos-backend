@@ -2,6 +2,7 @@ package dynamodb
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -116,7 +117,41 @@ func (r *EmailConfigRepo) Put(ctx context.Context, item *port.TenantEmailConfig)
 	return nil
 }
 
+func (r *EmailConfigRepo) PutIfAbsent(ctx context.Context, item *port.TenantEmailConfig) error {
+	ddbItem := emailConfigItem{
+		TenantSlug:     item.TenantSlug,
+		ServiceAPIKey:  item.ServiceAPIKey,
+		Enabled:        item.Enabled,
+		AllowedSenders: item.AllowedSenders,
+		APIBaseURL:     item.APIBaseURL,
+		InboundAddress: item.InboundAddress,
+	}
+
+	av, err := attributevalue.MarshalMap(ddbItem)
+	if err != nil {
+		return fmt.Errorf("marshaling dynamodb item: %w", err)
+	}
+
+	_, err = r.client.PutItem(ctx, &dynamodb.PutItemInput{
+		TableName:           aws.String(r.tableName),
+		Item:                av,
+		ConditionExpression: aws.String("attribute_not_exists(tenant_slug)"),
+	})
+	if err != nil {
+		var ccf *types.ConditionalCheckFailedException
+		if errors.As(err, &ccf) {
+			return domain.ErrAlreadyExists
+		}
+		return fmt.Errorf("dynamodb PutItem: %w", err)
+	}
+	return nil
+}
+
 func (r *EmailConfigRepo) UpdateConfig(ctx context.Context, tenantSlug string, enabled bool, allowedSenders []string) error {
+	if allowedSenders == nil {
+		allowedSenders = []string{}
+	}
+
 	sendersAV, err := attributevalue.MarshalList(allowedSenders)
 	if err != nil {
 		return fmt.Errorf("marshaling allowed_senders: %w", err)
@@ -135,6 +170,10 @@ func (r *EmailConfigRepo) UpdateConfig(ctx context.Context, tenantSlug string, e
 		},
 	})
 	if err != nil {
+		var ccf *types.ConditionalCheckFailedException
+		if errors.As(err, &ccf) {
+			return domain.ErrNotFound
+		}
 		return fmt.Errorf("dynamodb UpdateItem: %w", err)
 	}
 	return nil
