@@ -124,7 +124,8 @@ func (r *EmailConfigRepo) UpdateConfig(ctx context.Context, tenantSlug string, e
 		Key: map[string]types.AttributeValue{
 			"tenant_slug": &types.AttributeValueMemberS{Value: tenantSlug},
 		},
-		UpdateExpression: aws.String("SET enabled = :e, allowed_senders = :s"),
+		UpdateExpression:    aws.String("SET enabled = :e, allowed_senders = :s"),
+		ConditionExpression: aws.String("attribute_exists(tenant_slug)"),
 		ExpressionAttributeValues: map[string]types.AttributeValue{
 			":e": &types.AttributeValueMemberBOOL{Value: enabled},
 			":s": &types.AttributeValueMemberL{Value: sendersAV},

@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/google/uuid"
@@ -21,6 +22,8 @@ func newEmailConfigService() (service.EmailConfigService, *mocks.MockEmailConfig
 	svc := service.NewEmailConfigService(repo, tenantRepo, saSvc, "https://api.satvos.com")
 	return svc, repo, tenantRepo, saSvc
 }
+
+// --- GetConfig tests ---
 
 func TestEmailConfigService_GetConfig_EntryExists(t *testing.T) {
 	svc, repo, tenantRepo, _ := newEmailConfigService()
@@ -44,7 +47,6 @@ func TestEmailConfigService_GetConfig_EntryExists(t *testing.T) {
 	assert.Equal(t, "acme", out.TenantSlug)
 	assert.True(t, out.Enabled)
 	assert.Equal(t, []string{"@acme.com"}, out.AllowedSenders)
-	assert.True(t, out.HasServiceAccount)
 	tenantRepo.AssertExpectations(t)
 	repo.AssertExpectations(t)
 }
@@ -56,10 +58,7 @@ func TestEmailConfigService_GetConfig_NoEntry_AutoCreates(t *testing.T) {
 	tenant := &domain.Tenant{ID: tenantID, Slug: "acme"}
 	tenantRepo.On("GetByID", mock.Anything, tenantID).Return(tenant, nil)
 
-	// First Get returns not found
-	repo.On("Get", mock.Anything, "acme").Return(nil, domain.ErrNotFound).Once()
-
-	// ensureEntry: Get returns not found (same call, reused)
+	// getOrCreateEntry: Get returns not found
 	repo.On("Get", mock.Anything, "acme").Return(nil, domain.ErrNotFound).Once()
 
 	// SA creates new key
@@ -68,7 +67,7 @@ func TestEmailConfigService_GetConfig_NoEntry_AutoCreates(t *testing.T) {
 	// Put the new entry
 	repo.On("Put", mock.Anything, mock.AnythingOfType("*port.TenantEmailConfig")).Return(nil)
 
-	// Re-read after auto-create
+	// Re-read after create
 	created := &port.TenantEmailConfig{
 		TenantSlug:     "acme",
 		ServiceAPIKey:  "sk_newkey123",
@@ -84,7 +83,6 @@ func TestEmailConfigService_GetConfig_NoEntry_AutoCreates(t *testing.T) {
 	assert.Equal(t, "acme", out.TenantSlug)
 	assert.False(t, out.Enabled)
 	assert.Empty(t, out.AllowedSenders)
-	assert.True(t, out.HasServiceAccount)
 	saSvc.AssertExpectations(t)
 	repo.AssertExpectations(t)
 }
@@ -96,9 +94,7 @@ func TestEmailConfigService_GetConfig_NoEntry_SAExists_RotatesKey(t *testing.T) 
 	tenant := &domain.Tenant{ID: tenantID, Slug: "acme"}
 	tenantRepo.On("GetByID", mock.Anything, tenantID).Return(tenant, nil)
 
-	// First Get returns not found
-	repo.On("Get", mock.Anything, "acme").Return(nil, domain.ErrNotFound).Once()
-	// ensureEntry: Get returns not found
+	// getOrCreateEntry: Get returns not found
 	repo.On("Get", mock.Anything, "acme").Return(nil, domain.ErrNotFound).Once()
 
 	// GetOrCreateInboundEmailKey handles SA already existing by rotating
@@ -119,9 +115,73 @@ func TestEmailConfigService_GetConfig_NoEntry_SAExists_RotatesKey(t *testing.T) 
 
 	assert.NoError(t, err)
 	assert.Equal(t, "acme", out.TenantSlug)
-	assert.True(t, out.HasServiceAccount)
 	saSvc.AssertExpectations(t)
 }
+
+func TestEmailConfigService_GetConfig_TenantNotFound(t *testing.T) {
+	svc, _, tenantRepo, _ := newEmailConfigService()
+
+	tenantID := uuid.New()
+	tenantRepo.On("GetByID", mock.Anything, tenantID).Return(nil, domain.ErrNotFound)
+
+	out, err := svc.GetConfig(context.Background(), tenantID)
+
+	assert.Nil(t, out)
+	assert.ErrorIs(t, err, domain.ErrNotFound)
+}
+
+func TestEmailConfigService_GetConfig_DynamoDBError(t *testing.T) {
+	svc, repo, tenantRepo, _ := newEmailConfigService()
+
+	tenantID := uuid.New()
+	tenant := &domain.Tenant{ID: tenantID, Slug: "acme"}
+	tenantRepo.On("GetByID", mock.Anything, tenantID).Return(tenant, nil)
+
+	repo.On("Get", mock.Anything, "acme").Return(nil, errors.New("connection refused"))
+
+	out, err := svc.GetConfig(context.Background(), tenantID)
+
+	assert.Nil(t, out)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "getting email config")
+}
+
+func TestEmailConfigService_GetConfig_SACreationFails(t *testing.T) {
+	svc, repo, tenantRepo, saSvc := newEmailConfigService()
+
+	tenantID := uuid.New()
+	tenant := &domain.Tenant{ID: tenantID, Slug: "acme"}
+	tenantRepo.On("GetByID", mock.Anything, tenantID).Return(tenant, nil)
+
+	repo.On("Get", mock.Anything, "acme").Return(nil, domain.ErrNotFound).Once()
+	saSvc.On("GetOrCreateInboundEmailKey", mock.Anything, tenantID, uuid.Nil).Return("", errors.New("sa creation failed"))
+
+	out, err := svc.GetConfig(context.Background(), tenantID)
+
+	assert.Nil(t, out)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "getting inbound email API key")
+}
+
+func TestEmailConfigService_GetConfig_PutFails(t *testing.T) {
+	svc, repo, tenantRepo, saSvc := newEmailConfigService()
+
+	tenantID := uuid.New()
+	tenant := &domain.Tenant{ID: tenantID, Slug: "acme"}
+	tenantRepo.On("GetByID", mock.Anything, tenantID).Return(tenant, nil)
+
+	repo.On("Get", mock.Anything, "acme").Return(nil, domain.ErrNotFound).Once()
+	saSvc.On("GetOrCreateInboundEmailKey", mock.Anything, tenantID, uuid.Nil).Return("sk_key", nil)
+	repo.On("Put", mock.Anything, mock.AnythingOfType("*port.TenantEmailConfig")).Return(errors.New("dynamo write failed"))
+
+	out, err := svc.GetConfig(context.Background(), tenantID)
+
+	assert.Nil(t, out)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "creating email config entry")
+}
+
+// --- UpdateConfig tests ---
 
 func TestEmailConfigService_UpdateConfig_UpdatesBothFields(t *testing.T) {
 	svc, repo, tenantRepo, _ := newEmailConfigService()
@@ -137,14 +197,13 @@ func TestEmailConfigService_UpdateConfig_UpdatesBothFields(t *testing.T) {
 		AllowedSenders: []string{},
 		APIBaseURL:     "https://api.satvos.com",
 	}
-	// ensureEntry check
-	repo.On("Get", mock.Anything, "acme").Return(existing, nil).Once()
-	// Read existing for merge
+	// getOrCreateEntry returns existing
 	repo.On("Get", mock.Anything, "acme").Return(existing, nil).Once()
 
 	enabled := true
 	senders := []string{"@acme.com", "vendor@example.com"}
-	repo.On("UpdateConfig", mock.Anything, "acme", true, senders).Return(nil)
+	// After normalization, should be lowercased (already is)
+	repo.On("UpdateConfig", mock.Anything, "acme", true, []string{"@acme.com", "vendor@example.com"}).Return(nil)
 
 	updated := &port.TenantEmailConfig{
 		TenantSlug:     "acme",
@@ -179,7 +238,6 @@ func TestEmailConfigService_UpdateConfig_PartialUpdate(t *testing.T) {
 		AllowedSenders: []string{"@old.com"},
 		APIBaseURL:     "https://api.satvos.com",
 	}
-	repo.On("Get", mock.Anything, "acme").Return(existing, nil).Once()
 	repo.On("Get", mock.Anything, "acme").Return(existing, nil).Once()
 
 	// Only updating enabled, senders should stay as @old.com
@@ -244,9 +302,6 @@ func TestEmailConfigService_UpdateConfig_ValidFormats(t *testing.T) {
 		AllowedSenders: []string{},
 		APIBaseURL:     "https://api.satvos.com",
 	}
-	// ensureEntry check
-	repo.On("Get", mock.Anything, "acme").Return(existing, nil).Once()
-	// Read for merge
 	repo.On("Get", mock.Anything, "acme").Return(existing, nil).Once()
 
 	validSenders := []string{"*", "@acme.com", "vendor@example.com"}
@@ -277,12 +332,12 @@ func TestEmailConfigService_UpdateConfig_NoEntry_AutoCreatesThenUpdates(t *testi
 	tenant := &domain.Tenant{ID: tenantID, Slug: "acme"}
 	tenantRepo.On("GetByID", mock.Anything, tenantID).Return(tenant, nil)
 
-	// ensureEntry: Get returns not found
+	// getOrCreateEntry: Get returns not found
 	repo.On("Get", mock.Anything, "acme").Return(nil, domain.ErrNotFound).Once()
 	saSvc.On("GetOrCreateInboundEmailKey", mock.Anything, tenantID, callerID).Return("sk_newkey", nil)
 	repo.On("Put", mock.Anything, mock.AnythingOfType("*port.TenantEmailConfig")).Return(nil)
 
-	// Read existing for merge
+	// Re-read after create in getOrCreateEntry
 	created := &port.TenantEmailConfig{
 		TenantSlug:     "acme",
 		Enabled:        false,
@@ -313,4 +368,159 @@ func TestEmailConfigService_UpdateConfig_NoEntry_AutoCreatesThenUpdates(t *testi
 	assert.Equal(t, senders, out.AllowedSenders)
 	saSvc.AssertExpectations(t)
 	repo.AssertExpectations(t)
+}
+
+func TestEmailConfigService_UpdateConfig_TenantNotFound(t *testing.T) {
+	svc, _, tenantRepo, _ := newEmailConfigService()
+
+	tenantID := uuid.New()
+	callerID := uuid.New()
+	tenantRepo.On("GetByID", mock.Anything, tenantID).Return(nil, domain.ErrNotFound)
+
+	enabled := true
+	_, err := svc.UpdateConfig(context.Background(), tenantID, callerID, service.UpdateEmailConfigInput{
+		Enabled: &enabled,
+	})
+
+	assert.ErrorIs(t, err, domain.ErrNotFound)
+}
+
+// --- Validation edge case tests ---
+
+func TestEmailConfigService_Validation_EmptyString(t *testing.T) {
+	svc, repo, tenantRepo, _ := newEmailConfigService()
+
+	tenantID := uuid.New()
+	callerID := uuid.New()
+	tenant := &domain.Tenant{ID: tenantID, Slug: "acme"}
+	tenantRepo.On("GetByID", mock.Anything, tenantID).Return(tenant, nil)
+
+	existing := &port.TenantEmailConfig{TenantSlug: "acme", AllowedSenders: []string{}}
+	repo.On("Get", mock.Anything, "acme").Return(existing, nil).Once()
+
+	badSenders := []string{""}
+	_, err := svc.UpdateConfig(context.Background(), tenantID, callerID, service.UpdateEmailConfigInput{
+		AllowedSenders: &badSenders,
+	})
+
+	assert.ErrorIs(t, err, domain.ErrInvalidAllowedSender)
+	assert.Contains(t, err.Error(), "empty entry")
+}
+
+func TestEmailConfigService_Validation_AtSignOnly(t *testing.T) {
+	svc, repo, tenantRepo, _ := newEmailConfigService()
+
+	tenantID := uuid.New()
+	callerID := uuid.New()
+	tenant := &domain.Tenant{ID: tenantID, Slug: "acme"}
+	tenantRepo.On("GetByID", mock.Anything, tenantID).Return(tenant, nil)
+
+	existing := &port.TenantEmailConfig{TenantSlug: "acme", AllowedSenders: []string{}}
+	repo.On("Get", mock.Anything, "acme").Return(existing, nil).Once()
+
+	badSenders := []string{"@"}
+	_, err := svc.UpdateConfig(context.Background(), tenantID, callerID, service.UpdateEmailConfigInput{
+		AllowedSenders: &badSenders,
+	})
+
+	assert.ErrorIs(t, err, domain.ErrInvalidAllowedSender)
+}
+
+func TestEmailConfigService_Validation_AtDot(t *testing.T) {
+	svc, repo, tenantRepo, _ := newEmailConfigService()
+
+	tenantID := uuid.New()
+	callerID := uuid.New()
+	tenant := &domain.Tenant{ID: tenantID, Slug: "acme"}
+	tenantRepo.On("GetByID", mock.Anything, tenantID).Return(tenant, nil)
+
+	existing := &port.TenantEmailConfig{TenantSlug: "acme", AllowedSenders: []string{}}
+	repo.On("Get", mock.Anything, "acme").Return(existing, nil).Once()
+
+	badSenders := []string{"@."}
+	_, err := svc.UpdateConfig(context.Background(), tenantID, callerID, service.UpdateEmailConfigInput{
+		AllowedSenders: &badSenders,
+	})
+
+	assert.ErrorIs(t, err, domain.ErrInvalidAllowedSender)
+}
+
+func TestEmailConfigService_Validation_DisplayNameRejected(t *testing.T) {
+	svc, repo, tenantRepo, _ := newEmailConfigService()
+
+	tenantID := uuid.New()
+	callerID := uuid.New()
+	tenant := &domain.Tenant{ID: tenantID, Slug: "acme"}
+	tenantRepo.On("GetByID", mock.Anything, tenantID).Return(tenant, nil)
+
+	existing := &port.TenantEmailConfig{TenantSlug: "acme", AllowedSenders: []string{}}
+	repo.On("Get", mock.Anything, "acme").Return(existing, nil).Once()
+
+	badSenders := []string{"John Doe <john@example.com>"}
+	_, err := svc.UpdateConfig(context.Background(), tenantID, callerID, service.UpdateEmailConfigInput{
+		AllowedSenders: &badSenders,
+	})
+
+	assert.ErrorIs(t, err, domain.ErrInvalidAllowedSender)
+	assert.Contains(t, err.Error(), "plain email address")
+}
+
+func TestEmailConfigService_Validation_WhitespaceTrimmingAndLowercase(t *testing.T) {
+	svc, repo, tenantRepo, _ := newEmailConfigService()
+
+	tenantID := uuid.New()
+	callerID := uuid.New()
+	tenant := &domain.Tenant{ID: tenantID, Slug: "acme"}
+	tenantRepo.On("GetByID", mock.Anything, tenantID).Return(tenant, nil)
+
+	existing := &port.TenantEmailConfig{TenantSlug: "acme", AllowedSenders: []string{}}
+	repo.On("Get", mock.Anything, "acme").Return(existing, nil).Once()
+
+	// Input has whitespace and mixed case — should be normalized
+	senders := []string{" @ACME.COM ", " User@Example.COM "}
+	// After normalization: lowercase, trimmed
+	repo.On("UpdateConfig", mock.Anything, "acme", false, []string{"@acme.com", "user@example.com"}).Return(nil)
+
+	updated := &port.TenantEmailConfig{
+		TenantSlug:     "acme",
+		AllowedSenders: []string{"@acme.com", "user@example.com"},
+	}
+	repo.On("Get", mock.Anything, "acme").Return(updated, nil).Once()
+
+	out, err := svc.UpdateConfig(context.Background(), tenantID, callerID, service.UpdateEmailConfigInput{
+		AllowedSenders: &senders,
+	})
+
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"@acme.com", "user@example.com"}, out.AllowedSenders)
+}
+
+func TestEmailConfigService_Validation_Deduplication(t *testing.T) {
+	svc, repo, tenantRepo, _ := newEmailConfigService()
+
+	tenantID := uuid.New()
+	callerID := uuid.New()
+	tenant := &domain.Tenant{ID: tenantID, Slug: "acme"}
+	tenantRepo.On("GetByID", mock.Anything, tenantID).Return(tenant, nil)
+
+	existing := &port.TenantEmailConfig{TenantSlug: "acme", AllowedSenders: []string{}}
+	repo.On("Get", mock.Anything, "acme").Return(existing, nil).Once()
+
+	// Duplicates should be removed
+	senders := []string{"@acme.com", "@ACME.COM", "user@test.com", "user@test.com"}
+	// After normalization: deduplicated
+	repo.On("UpdateConfig", mock.Anything, "acme", false, []string{"@acme.com", "user@test.com"}).Return(nil)
+
+	updated := &port.TenantEmailConfig{
+		TenantSlug:     "acme",
+		AllowedSenders: []string{"@acme.com", "user@test.com"},
+	}
+	repo.On("Get", mock.Anything, "acme").Return(updated, nil).Once()
+
+	out, err := svc.UpdateConfig(context.Background(), tenantID, callerID, service.UpdateEmailConfigInput{
+		AllowedSenders: &senders,
+	})
+
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"@acme.com", "user@test.com"}, out.AllowedSenders)
 }

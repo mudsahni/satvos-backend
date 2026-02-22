@@ -3,7 +3,6 @@ package handler_test
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -28,11 +27,10 @@ func TestEmailConfigHandler_GetConfig_Success(t *testing.T) {
 	userID := uuid.New()
 
 	expected := &service.EmailConfigOutput{
-		TenantSlug:        "acme",
-		Enabled:           true,
-		AllowedSenders:    []string{"@acme.com"},
-		APIBaseURL:        "https://api.satvos.com",
-		HasServiceAccount: true,
+		TenantSlug:     "acme",
+		Enabled:        true,
+		AllowedSenders: []string{"@acme.com"},
+		APIBaseURL:     "https://api.satvos.com",
 	}
 	mockSvc.On("GetConfig", mock.Anything, tenantID).Return(expected, nil)
 
@@ -74,7 +72,7 @@ func TestEmailConfigHandler_GetConfig_ServiceError(t *testing.T) {
 	tenantID := uuid.New()
 	userID := uuid.New()
 
-	mockSvc.On("GetConfig", mock.Anything, tenantID).Return(nil, errors.New("db error"))
+	mockSvc.On("GetConfig", mock.Anything, tenantID).Return(nil, fmt.Errorf("db error"))
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -87,6 +85,20 @@ func TestEmailConfigHandler_GetConfig_ServiceError(t *testing.T) {
 	mockSvc.AssertExpectations(t)
 }
 
+func TestEmailConfigHandler_GetConfig_MissingAuthContext(t *testing.T) {
+	mockSvc := new(mocks.MockEmailConfigService)
+	h := handler.NewEmailConfigHandler(mockSvc)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest(http.MethodGet, "/api/v1/admin/email-config", http.NoBody)
+	// No auth context set
+
+	h.GetConfig(c)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
 func TestEmailConfigHandler_UpdateConfig_Success(t *testing.T) {
 	mockSvc := new(mocks.MockEmailConfigService)
 	h := handler.NewEmailConfigHandler(mockSvc)
@@ -95,11 +107,10 @@ func TestEmailConfigHandler_UpdateConfig_Success(t *testing.T) {
 	userID := uuid.New()
 
 	expected := &service.EmailConfigOutput{
-		TenantSlug:        "acme",
-		Enabled:           true,
-		AllowedSenders:    []string{"@acme.com"},
-		APIBaseURL:        "https://api.satvos.com",
-		HasServiceAccount: true,
+		TenantSlug:     "acme",
+		Enabled:        true,
+		AllowedSenders: []string{"@acme.com"},
+		APIBaseURL:     "https://api.satvos.com",
 	}
 	mockSvc.On("UpdateConfig", mock.Anything, tenantID, userID, mock.AnythingOfType("service.UpdateEmailConfigInput")).Return(expected, nil)
 
@@ -174,6 +185,11 @@ func TestEmailConfigHandler_UpdateConfig_InvalidSender(t *testing.T) {
 	h.UpdateConfig(c)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	var resp handler.APIResponse
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.NoError(t, err)
+	assert.Equal(t, "INVALID_ALLOWED_SENDER", resp.Error.Code)
 	mockSvc.AssertExpectations(t)
 }
 

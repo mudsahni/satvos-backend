@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/mail"
+	"regexp"
 	"strings"
 
 	"github.com/google/uuid"
@@ -12,6 +13,10 @@ import (
 	"satvos/internal/domain"
 	"satvos/internal/port"
 )
+
+// domainRegexp validates the part after @ in domain entries.
+// Requires: starts with alnum, allows hyphens, at least one dot, TLD >= 2 chars.
+var domainRegexp = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$`)
 
 // UpdateEmailConfigInput is the DTO for updating email processing config.
 type UpdateEmailConfigInput struct {
@@ -21,11 +26,10 @@ type UpdateEmailConfigInput struct {
 
 // EmailConfigOutput is the API response DTO for email processing config.
 type EmailConfigOutput struct {
-	TenantSlug        string   `json:"tenant_slug"`
-	Enabled           bool     `json:"enabled"`
-	AllowedSenders    []string `json:"allowed_senders"`
-	APIBaseURL        string   `json:"api_base_url"`
-	HasServiceAccount bool     `json:"has_service_account"`
+	TenantSlug     string   `json:"tenant_slug"`
+	Enabled        bool     `json:"enabled"`
+	AllowedSenders []string `json:"allowed_senders"`
+	APIBaseURL     string   `json:"api_base_url"`
 }
 
 // EmailConfigService defines the contract for managing tenant email processing config.
@@ -62,22 +66,12 @@ func (s *emailConfigService) GetConfig(ctx context.Context, tenantID uuid.UUID) 
 		return nil, err
 	}
 
-	cfg, err := s.emailConfigRepo.Get(ctx, tenant.Slug)
+	cfg, err := s.getOrCreateEntry(ctx, tenant, uuid.Nil)
 	if err != nil {
-		if !errors.Is(err, domain.ErrNotFound) {
-			return nil, fmt.Errorf("getting email config: %w", err)
-		}
-		// Auto-create on first access
-		if ensureErr := s.ensureEntry(ctx, tenant, uuid.Nil); ensureErr != nil {
-			return nil, ensureErr
-		}
-		cfg, err = s.emailConfigRepo.Get(ctx, tenant.Slug)
-		if err != nil {
-			return nil, fmt.Errorf("getting email config after auto-create: %w", err)
-		}
+		return nil, err
 	}
 
-	return toOutput(cfg), nil
+	return emailConfigToOutput(cfg), nil
 }
 
 func (s *emailConfigService) UpdateConfig(ctx context.Context, tenantID, callerID uuid.UUID, input UpdateEmailConfigInput) (*EmailConfigOutput, error) {
@@ -86,22 +80,19 @@ func (s *emailConfigService) UpdateConfig(ctx context.Context, tenantID, callerI
 		return nil, err
 	}
 
-	// Ensure entry exists
-	if err := s.ensureEntry(ctx, tenant, callerID); err != nil {
+	// Ensure entry exists (returns current config)
+	existing, err := s.getOrCreateEntry(ctx, tenant, callerID)
+	if err != nil {
 		return nil, err
 	}
 
-	// Validate allowed_senders if provided
+	// Validate and normalize allowed_senders if provided
 	if input.AllowedSenders != nil {
-		if err := validateAllowedSenders(*input.AllowedSenders); err != nil {
-			return nil, err
+		normalized, valErr := validateAndNormalizeAllowedSenders(*input.AllowedSenders)
+		if valErr != nil {
+			return nil, valErr
 		}
-	}
-
-	// Read current config to merge
-	existing, err := s.emailConfigRepo.Get(ctx, tenant.Slug)
-	if err != nil {
-		return nil, fmt.Errorf("reading existing email config: %w", err)
+		input.AllowedSenders = &normalized
 	}
 
 	// Merge non-nil fields
@@ -124,22 +115,24 @@ func (s *emailConfigService) UpdateConfig(ctx context.Context, tenantID, callerI
 		return nil, fmt.Errorf("reading email config after update: %w", err)
 	}
 
-	return toOutput(cfg), nil
+	return emailConfigToOutput(cfg), nil
 }
 
-func (s *emailConfigService) ensureEntry(ctx context.Context, tenant *domain.Tenant, callerID uuid.UUID) error {
-	_, err := s.emailConfigRepo.Get(ctx, tenant.Slug)
+// getOrCreateEntry returns the existing config or auto-creates it.
+// Reduces redundant DynamoDB reads by returning the config directly.
+func (s *emailConfigService) getOrCreateEntry(ctx context.Context, tenant *domain.Tenant, callerID uuid.UUID) (*port.TenantEmailConfig, error) {
+	cfg, err := s.emailConfigRepo.Get(ctx, tenant.Slug)
 	if err == nil {
-		return nil // already exists
+		return cfg, nil
 	}
 	if !errors.Is(err, domain.ErrNotFound) {
-		return fmt.Errorf("checking email config: %w", err)
+		return nil, fmt.Errorf("getting email config: %w", err)
 	}
 
 	// Get or create the inbound_email SA and get raw key
 	rawKey, err := s.saSvc.GetOrCreateInboundEmailKey(ctx, tenant.ID, callerID)
 	if err != nil {
-		return fmt.Errorf("getting inbound email API key: %w", err)
+		return nil, fmt.Errorf("getting inbound email API key: %w", err)
 	}
 
 	item := &port.TenantEmailConfig{
@@ -151,44 +144,78 @@ func (s *emailConfigService) ensureEntry(ctx context.Context, tenant *domain.Ten
 	}
 
 	if err := s.emailConfigRepo.Put(ctx, item); err != nil {
-		return fmt.Errorf("creating email config entry: %w", err)
+		return nil, fmt.Errorf("creating email config entry: %w", err)
 	}
 
-	return nil
+	// Re-read to return the stored state (Put is last-writer-wins, so read back what's there)
+	cfg, err = s.emailConfigRepo.Get(ctx, tenant.Slug)
+	if err != nil {
+		return nil, fmt.Errorf("reading email config after create: %w", err)
+	}
+
+	return cfg, nil
 }
 
-func toOutput(cfg *port.TenantEmailConfig) *EmailConfigOutput {
+func emailConfigToOutput(cfg *port.TenantEmailConfig) *EmailConfigOutput {
 	senders := cfg.AllowedSenders
 	if senders == nil {
 		senders = []string{}
 	}
 	return &EmailConfigOutput{
-		TenantSlug:        cfg.TenantSlug,
-		Enabled:           cfg.Enabled,
-		AllowedSenders:    senders,
-		APIBaseURL:        cfg.APIBaseURL,
-		HasServiceAccount: true,
+		TenantSlug:     cfg.TenantSlug,
+		Enabled:        cfg.Enabled,
+		AllowedSenders: senders,
+		APIBaseURL:     cfg.APIBaseURL,
 	}
 }
 
-// validateAllowedSenders checks each entry is a valid email, @domain, or *.
-func validateAllowedSenders(senders []string) error {
-	for _, entry := range senders {
-		if entry == "*" {
-			continue
+// validateAndNormalizeAllowedSenders validates, trims, lowercases, and deduplicates entries.
+// Each entry must be: "*", "@domain.com", or "user@domain.com".
+func validateAndNormalizeAllowedSenders(senders []string) ([]string, error) {
+	seen := make(map[string]struct{}, len(senders))
+	normalized := make([]string, 0, len(senders))
+
+	for _, raw := range senders {
+		entry := strings.ToLower(strings.TrimSpace(raw))
+		if entry == "" {
+			return nil, fmt.Errorf("%w: empty entry not allowed", domain.ErrInvalidAllowedSender)
 		}
-		if strings.HasPrefix(entry, "@") {
-			// Domain format: @domain.com
-			d := entry[1:]
-			if !strings.Contains(d, ".") || len(d) < 3 {
-				return fmt.Errorf("%w: %q is not a valid domain", domain.ErrInvalidAllowedSender, entry)
+
+		if entry == "*" {
+			if _, dup := seen[entry]; !dup {
+				seen[entry] = struct{}{}
+				normalized = append(normalized, entry)
 			}
 			continue
 		}
-		// Must be a valid email
-		if _, err := mail.ParseAddress(entry); err != nil {
-			return fmt.Errorf("%w: %q is not a valid email address", domain.ErrInvalidAllowedSender, entry)
+
+		if strings.HasPrefix(entry, "@") {
+			// Domain format: @domain.com
+			d := entry[1:]
+			if !domainRegexp.MatchString(d) {
+				return nil, fmt.Errorf("%w: %q is not a valid domain", domain.ErrInvalidAllowedSender, raw)
+			}
+			if _, dup := seen[entry]; !dup {
+				seen[entry] = struct{}{}
+				normalized = append(normalized, entry)
+			}
+			continue
+		}
+
+		// Must be a valid email — reject display-name forms like "Name <email>"
+		addr, err := mail.ParseAddress(entry)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %q is not a valid email address", domain.ErrInvalidAllowedSender, raw)
+		}
+		if addr.Address != entry {
+			return nil, fmt.Errorf("%w: %q must be a plain email address (no display names)", domain.ErrInvalidAllowedSender, raw)
+		}
+
+		if _, dup := seen[entry]; !dup {
+			seen[entry] = struct{}{}
+			normalized = append(normalized, entry)
 		}
 	}
-	return nil
+
+	return normalized, nil
 }

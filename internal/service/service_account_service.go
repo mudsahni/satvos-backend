@@ -293,7 +293,11 @@ func (s *serviceAccountService) GetOrCreateInboundEmailKey(ctx context.Context, 
 		return rawKey, nil
 	}
 
-	// SA already exists — rotate to get a fresh raw key
+	// SA already exists — rotate to get a fresh raw key.
+	// WARNING: This invalidates the previous key. If the Lambda is using the old key,
+	// it will fail until its cache expires (~5 minutes) and it reads the new key from DynamoDB.
+	log.Printf("WARNING: rotating inbound_email SA key for tenant %s — any active Lambda using the old key will fail until cache expires", tenantID)
+
 	sa, err := s.saRepo.GetByName(ctx, tenantID, "inbound_email")
 	if err != nil {
 		return "", fmt.Errorf("looking up inbound_email SA: %w", err)
