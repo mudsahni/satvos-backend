@@ -15,6 +15,16 @@ import (
 	"satvos/internal/service"
 )
 
+// allowedFacetKeys defines the tag keys that can be queried via the TagFacets endpoint.
+var allowedFacetKeys = map[string]bool{
+	"seller_name":     true,
+	"buyer_name":      true,
+	"seller_gstin":    true,
+	"buyer_gstin":     true,
+	"invoice_type":    true,
+	"place_of_supply": true,
+}
+
 // DocumentHandler handles document parsing endpoints.
 type DocumentHandler struct {
 	documentService service.DocumentService
@@ -168,18 +178,34 @@ func (h *DocumentHandler) List(c *gin.Context) {
 	}
 	if v := c.Query("parsing_status"); v != "" {
 		ps := domain.ParsingStatus(v)
+		if !domain.ValidParsingStatuses[ps] {
+			RespondError(c, http.StatusBadRequest, "INVALID_REQUEST", "invalid parsing_status value")
+			return
+		}
 		filters.ParsingStatus = &ps
 	}
 	if v := c.Query("review_status"); v != "" {
 		rs := domain.ReviewStatus(v)
+		if !domain.ValidReviewStatuses[rs] {
+			RespondError(c, http.StatusBadRequest, "INVALID_REQUEST", "invalid review_status value")
+			return
+		}
 		filters.ReviewStatus = &rs
 	}
 	if v := c.Query("validation_status"); v != "" {
 		vs := domain.ValidationStatus(v)
+		if !domain.ValidValidationStatuses[vs] {
+			RespondError(c, http.StatusBadRequest, "INVALID_REQUEST", "invalid validation_status value")
+			return
+		}
 		filters.ValidationStatus = &vs
 	}
 	if v := c.Query("reconciliation_status"); v != "" {
 		rs := domain.ReconciliationStatus(v)
+		if !domain.ValidReconciliationStatuses[rs] {
+			RespondError(c, http.StatusBadRequest, "INVALID_REQUEST", "invalid reconciliation_status value")
+			return
+		}
 		filters.ReconciliationStatus = &rs
 	}
 
@@ -232,16 +258,8 @@ func (h *DocumentHandler) TagFacets(c *gin.Context) {
 	}
 
 	keys := strings.Split(keysStr, ",")
-	allowed := map[string]bool{
-		"seller_name":    true,
-		"buyer_name":     true,
-		"seller_gstin":   true,
-		"buyer_gstin":    true,
-		"invoice_type":   true,
-		"place_of_supply": true,
-	}
 	for _, k := range keys {
-		if !allowed[k] {
+		if !allowedFacetKeys[k] {
 			RespondError(c, http.StatusBadRequest, "INVALID_REQUEST",
 				fmt.Sprintf("invalid facet key %q", k))
 			return
