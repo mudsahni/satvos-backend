@@ -1,4 +1,4 @@
-.PHONY: build run test test-unit lint lint-fix migrate-up migrate-down docker-build docker-up docker-down swagger seed-hsn generate-hsn-seed backfill-summaries
+.PHONY: build run test test-unit lint lint-fix migrate-up migrate-down docker-build docker-up docker-down swagger seed-hsn generate-hsn-seed backfill-summaries backfill-normalize-tags
 
 include .env
 export $(shell sed 's/=.*//' .env)
@@ -50,3 +50,6 @@ seed-hsn:
 
 backfill-summaries:
 	go run ./cmd/backfill
+
+backfill-normalize-tags:
+	go run ./cmd/backfill-normalize-tags
