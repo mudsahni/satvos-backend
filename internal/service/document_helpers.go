@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"satvos/internal/domain"
+	"satvos/internal/normalize"
 	"satvos/internal/validator/invoice"
 )
 
@@ -252,13 +253,13 @@ func (s *documentService) extractAndSaveAutoTags(ctx context.Context, docID, ten
 		tagMap["invoice_date"] = inv.Invoice.InvoiceDate
 	}
 	if inv.Seller.Name != "" {
-		tagMap["seller_name"] = inv.Seller.Name
+		tagMap["seller_name"] = normalize.CompanyName(inv.Seller.Name)
 	}
 	if inv.Seller.GSTIN != "" {
 		tagMap["seller_gstin"] = inv.Seller.GSTIN
 	}
 	if inv.Buyer.Name != "" {
-		tagMap["buyer_name"] = inv.Buyer.Name
+		tagMap["buyer_name"] = normalize.CompanyName(inv.Buyer.Name)
 	}
 	if inv.Buyer.GSTIN != "" {
 		tagMap["buyer_gstin"] = inv.Buyer.GSTIN

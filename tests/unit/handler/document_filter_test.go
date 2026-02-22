@@ -59,8 +59,8 @@ func TestDocumentHandler_List_WithTagFilters(t *testing.T) {
 
 	mockSvc.On("ListByTenant", mock.Anything, tenantID, userID, domain.UserRole("admin"),
 		mock.MatchedBy(func(f *port.DocumentListFilters) bool {
-			return f.SellerName != nil && *f.SellerName == "Acme Corp" &&
-				f.BuyerName != nil && *f.BuyerName == "My Company"
+			return f.SellerName != nil && *f.SellerName == "ACME CORP" &&
+				f.BuyerName != nil && *f.BuyerName == "MY CO"
 		}), 0, 20).Return(docs, 1, nil)
 
 	w := httptest.NewRecorder()
@@ -88,7 +88,7 @@ func TestDocumentHandler_List_WithAllFilters(t *testing.T) {
 	mockSvc.On("ListByCollection", mock.Anything, tenantID, collectionID, userID, domain.UserRole("admin"),
 		mock.MatchedBy(func(f *port.DocumentListFilters) bool {
 			return f.AssignedTo != nil && *f.AssignedTo == assigneeID &&
-				f.SellerName != nil && *f.SellerName == "Seller" &&
+				f.SellerName != nil && *f.SellerName == "SELLER" &&
 				f.ParsingStatus != nil && *f.ParsingStatus == domain.ParsingStatusCompleted &&
 				f.ReviewStatus != nil && *f.ReviewStatus == domain.ReviewStatusApproved &&
 				f.ValidationStatus != nil && *f.ValidationStatus == domain.ValidationStatusValid &&

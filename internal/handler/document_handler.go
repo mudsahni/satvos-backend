@@ -11,6 +11,7 @@ import (
 
 	"satvos/internal/domain"
 	"satvos/internal/middleware"
+	"satvos/internal/normalize"
 	"satvos/internal/port"
 	"satvos/internal/service"
 )
@@ -171,10 +172,12 @@ func (h *DocumentHandler) List(c *gin.Context) {
 		filters.AssignedTo = &parsed
 	}
 	if v := c.Query("seller_name"); v != "" {
-		filters.SellerName = &v
+		normalized := normalize.CompanyName(v)
+		filters.SellerName = &normalized
 	}
 	if v := c.Query("buyer_name"); v != "" {
-		filters.BuyerName = &v
+		normalized := normalize.CompanyName(v)
+		filters.BuyerName = &normalized
 	}
 	if v := c.Query("parsing_status"); v != "" {
 		ps := domain.ParsingStatus(v)
@@ -714,6 +717,10 @@ func (h *DocumentHandler) SearchByTag(c *gin.Context) {
 	if key == "" || value == "" {
 		RespondError(c, http.StatusBadRequest, "INVALID_REQUEST", "key and value query parameters are required")
 		return
+	}
+
+	if key == "seller_name" || key == "buyer_name" {
+		value = normalize.CompanyName(value)
 	}
 
 	offset, limit := parsePagination(c)
