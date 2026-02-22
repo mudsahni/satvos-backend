@@ -43,6 +43,14 @@ func (m *MockCollectionPermissionRepo) ListByCollection(ctx context.Context, col
 	return args.Get(0).([]domain.CollectionPermissionEntry), args.Int(1), args.Error(2)
 }
 
+func (m *MockCollectionPermissionRepo) ListCollectionIDs(ctx context.Context, tenantID, userID uuid.UUID) ([]uuid.UUID, error) {
+	args := m.Called(ctx, tenantID, userID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]uuid.UUID), args.Error(1)
+}
+
 func (m *MockCollectionPermissionRepo) Delete(ctx context.Context, collectionID, userID uuid.UUID) error {
 	args := m.Called(ctx, collectionID, userID)
 	return args.Error(0)

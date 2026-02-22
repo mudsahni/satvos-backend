@@ -28,5 +28,6 @@ type ServiceAccountPermissionRepository interface {
 	GetByAccountAndCollection(ctx context.Context, saID, collectionID uuid.UUID) (*domain.ServiceAccountPermission, error)
 	GetByAccountForCollections(ctx context.Context, saID uuid.UUID, collectionIDs []uuid.UUID) (map[uuid.UUID]domain.CollectionPermission, error)
 	ListByAccount(ctx context.Context, tenantID, saID uuid.UUID) ([]domain.ServiceAccountPermission, error)
+	ListCollectionIDs(ctx context.Context, tenantID, saID uuid.UUID) ([]uuid.UUID, error)
 	Delete(ctx context.Context, tenantID, saID, collectionID uuid.UUID) error
 }

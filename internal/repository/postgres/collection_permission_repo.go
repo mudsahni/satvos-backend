@@ -106,6 +106,17 @@ func (r *collectionPermissionRepo) ListByCollection(ctx context.Context, collect
 	return perms, total, nil
 }
 
+func (r *collectionPermissionRepo) ListCollectionIDs(ctx context.Context, tenantID, userID uuid.UUID) ([]uuid.UUID, error) {
+	var ids []uuid.UUID
+	err := r.db.SelectContext(ctx, &ids,
+		"SELECT DISTINCT collection_id FROM collection_permissions WHERE tenant_id = $1 AND user_id = $2",
+		tenantID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("collectionPermissionRepo.ListCollectionIDs: %w", err)
+	}
+	return ids, nil
+}
+
 func (r *collectionPermissionRepo) Delete(ctx context.Context, collectionID, userID uuid.UUID) error {
 	result, err := r.db.ExecContext(ctx,
 		"DELETE FROM collection_permissions WHERE collection_id = $1 AND user_id = $2",

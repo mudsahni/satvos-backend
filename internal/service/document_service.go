@@ -57,8 +57,9 @@ type DocumentService interface {
 	CreateAndParse(ctx context.Context, input *CreateDocumentInput) (*domain.Document, error)
 	GetByID(ctx context.Context, tenantID, docID, userID uuid.UUID, role domain.UserRole) (*domain.Document, error)
 	GetByFileID(ctx context.Context, tenantID, fileID, userID uuid.UUID, role domain.UserRole) (*domain.Document, error)
-	ListByCollection(ctx context.Context, tenantID, collectionID, userID uuid.UUID, role domain.UserRole, assignedTo *uuid.UUID, offset, limit int) ([]domain.Document, int, error)
-	ListByTenant(ctx context.Context, tenantID, userID uuid.UUID, role domain.UserRole, assignedTo *uuid.UUID, offset, limit int) ([]domain.Document, int, error)
+	ListByCollection(ctx context.Context, tenantID, collectionID, userID uuid.UUID, role domain.UserRole, filters *port.DocumentListFilters, offset, limit int) ([]domain.Document, int, error)
+	ListByTenant(ctx context.Context, tenantID, userID uuid.UUID, role domain.UserRole, filters *port.DocumentListFilters, offset, limit int) ([]domain.Document, int, error)
+	GetTagFacets(ctx context.Context, tenantID, userID uuid.UUID, role domain.UserRole, keys []string) (map[string][]port.TagFacet, error)
 	AssignDocument(ctx context.Context, input *AssignDocumentInput) (*domain.Document, error)
 	ListReviewQueue(ctx context.Context, tenantID, userID uuid.UUID, offset, limit int) ([]domain.Document, int, error)
 	UpdateReview(ctx context.Context, input *UpdateReviewInput) (*domain.Document, error)
@@ -157,24 +158,46 @@ func (s *documentService) GetByFileID(ctx context.Context, tenantID, fileID, use
 	return doc, nil
 }
 
-func (s *documentService) ListByCollection(ctx context.Context, tenantID, collectionID, userID uuid.UUID, role domain.UserRole, assignedTo *uuid.UUID, offset, limit int) ([]domain.Document, int, error) {
+func (s *documentService) ListByCollection(ctx context.Context, tenantID, collectionID, userID uuid.UUID, role domain.UserRole, filters *port.DocumentListFilters, offset, limit int) ([]domain.Document, int, error) {
 	if err := s.requireCollectionPerm(ctx, collectionID, userID, role, domain.CollectionPermViewer); err != nil {
 		return nil, 0, err
 	}
-	return s.docRepo.ListByCollection(ctx, tenantID, collectionID, assignedTo, offset, limit)
+	return s.docRepo.ListByCollection(ctx, tenantID, collectionID, filters, offset, limit)
 }
 
-func (s *documentService) ListByTenant(ctx context.Context, tenantID, userID uuid.UUID, role domain.UserRole, assignedTo *uuid.UUID, offset, limit int) ([]domain.Document, int, error) {
+func (s *documentService) ListByTenant(ctx context.Context, tenantID, userID uuid.UUID, role domain.UserRole, filters *port.DocumentListFilters, offset, limit int) ([]domain.Document, int, error) {
 	// Admin, manager, and member see all documents
 	if role == domain.RoleAdmin || role == domain.RoleManager || role == domain.RoleMember {
-		return s.docRepo.ListByTenant(ctx, tenantID, assignedTo, offset, limit)
+		return s.docRepo.ListByTenant(ctx, tenantID, filters, offset, limit)
 	}
 	// Service accounts see only documents in collections they have explicit permission for
 	if role == domain.RoleService {
-		return s.docRepo.ListByServiceAccountCollections(ctx, tenantID, userID, assignedTo, offset, limit)
+		return s.docRepo.ListByServiceAccountCollections(ctx, tenantID, userID, filters, offset, limit)
 	}
 	// Viewer/free sees only documents in collections they have access to
-	return s.docRepo.ListByUserCollections(ctx, tenantID, userID, assignedTo, offset, limit)
+	return s.docRepo.ListByUserCollections(ctx, tenantID, userID, filters, offset, limit)
+}
+
+// accessibleCollectionIDs returns the collection IDs a user can access, or nil for unrestricted access.
+func (s *documentService) accessibleCollectionIDs(ctx context.Context, tenantID, userID uuid.UUID, role domain.UserRole) ([]uuid.UUID, error) {
+	if role == domain.RoleAdmin || role == domain.RoleManager || role == domain.RoleMember {
+		return nil, nil // nil = all collections
+	}
+	if role == domain.RoleService {
+		if s.saPermRepo == nil {
+			return []uuid.UUID{}, nil
+		}
+		return s.saPermRepo.ListCollectionIDs(ctx, tenantID, userID)
+	}
+	return s.permRepo.ListCollectionIDs(ctx, tenantID, userID)
+}
+
+func (s *documentService) GetTagFacets(ctx context.Context, tenantID, userID uuid.UUID, role domain.UserRole, keys []string) (map[string][]port.TagFacet, error) {
+	collectionIDs, err := s.accessibleCollectionIDs(ctx, tenantID, userID, role)
+	if err != nil {
+		return nil, err
+	}
+	return s.tagRepo.FacetsByKeys(ctx, tenantID, keys, collectionIDs)
 }
 
 func (s *documentService) ListReviewQueue(ctx context.Context, tenantID, userID uuid.UUID, offset, limit int) ([]domain.Document, int, error) {

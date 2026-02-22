@@ -93,23 +93,61 @@ func (r *documentRepo) GetByFileID(ctx context.Context, tenantID, fileID uuid.UU
 	return &doc, nil
 }
 
-func (r *documentRepo) ListByCollection(ctx context.Context, tenantID, collectionID uuid.UUID, assignedTo *uuid.UUID, offset, limit int) ([]domain.Document, int, error) {
-	countQuery := "SELECT COUNT(*) FROM documents WHERE tenant_id = $1 AND collection_id = $2"
-	selectQuery := "SELECT * FROM documents WHERE tenant_id = $1 AND collection_id = $2"
-	args := []interface{}{tenantID, collectionID}
-
-	if assignedTo != nil {
-		countQuery += fmt.Sprintf(" AND assigned_to = $%d", len(args)+1)
-		selectQuery += fmt.Sprintf(" AND assigned_to = $%d", len(args)+1)
-		args = append(args, *assignedTo)
+// appendListFilters appends optional filter clauses to a base WHERE query.
+// tableAlias should be empty for unaliased queries or "d." for JOINed queries.
+func appendListFilters(baseQuery string, args []interface{}, filters *port.DocumentListFilters, tableAlias string) (query string, out []interface{}) {
+	if filters == nil {
+		return baseQuery, args
 	}
 
+	if filters.AssignedTo != nil {
+		args = append(args, *filters.AssignedTo)
+		baseQuery += fmt.Sprintf(" AND %sassigned_to = $%d", tableAlias, len(args))
+	}
+	if filters.ParsingStatus != nil {
+		args = append(args, string(*filters.ParsingStatus))
+		baseQuery += fmt.Sprintf(" AND %sparsing_status = $%d", tableAlias, len(args))
+	}
+	if filters.ReviewStatus != nil {
+		args = append(args, string(*filters.ReviewStatus))
+		baseQuery += fmt.Sprintf(" AND %sreview_status = $%d", tableAlias, len(args))
+	}
+	if filters.ValidationStatus != nil {
+		args = append(args, string(*filters.ValidationStatus))
+		baseQuery += fmt.Sprintf(" AND %svalidation_status = $%d", tableAlias, len(args))
+	}
+	if filters.ReconciliationStatus != nil {
+		args = append(args, string(*filters.ReconciliationStatus))
+		baseQuery += fmt.Sprintf(" AND %sreconciliation_status = $%d", tableAlias, len(args))
+	}
+	if filters.SellerName != nil {
+		args = append(args, *filters.SellerName)
+		baseQuery += fmt.Sprintf(
+			" AND EXISTS (SELECT 1 FROM document_tags dt WHERE dt.document_id = %sid AND dt.key = 'seller_name' AND dt.value = $%d)",
+			tableAlias, len(args))
+	}
+	if filters.BuyerName != nil {
+		args = append(args, *filters.BuyerName)
+		baseQuery += fmt.Sprintf(
+			" AND EXISTS (SELECT 1 FROM document_tags dt WHERE dt.document_id = %sid AND dt.key = 'buyer_name' AND dt.value = $%d)",
+			tableAlias, len(args))
+	}
+	return baseQuery, args
+}
+
+func (r *documentRepo) ListByCollection(ctx context.Context, tenantID, collectionID uuid.UUID, filters *port.DocumentListFilters, offset, limit int) ([]domain.Document, int, error) {
+	baseWhere := "WHERE tenant_id = $1 AND collection_id = $2"
+	args := make([]interface{}, 0, 11) // 2 base + up to 7 filters + limit + offset
+	args = append(args, tenantID, collectionID)
+	baseWhere, args = appendListFilters(baseWhere, args, filters, "")
+
 	var total int
-	if err := r.db.GetContext(ctx, &total, countQuery, args...); err != nil {
+	if err := r.db.GetContext(ctx, &total, "SELECT COUNT(*) FROM documents "+baseWhere, args...); err != nil {
 		return nil, 0, fmt.Errorf("documentRepo.ListByCollection count: %w", err)
 	}
 
-	selectQuery += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
+	selectQuery := fmt.Sprintf("SELECT * FROM documents %s ORDER BY created_at DESC LIMIT $%d OFFSET $%d",
+		baseWhere, len(args)+1, len(args)+2)
 	args = append(args, limit, offset)
 
 	var docs []domain.Document
@@ -119,23 +157,19 @@ func (r *documentRepo) ListByCollection(ctx context.Context, tenantID, collectio
 	return docs, total, nil
 }
 
-func (r *documentRepo) ListByTenant(ctx context.Context, tenantID uuid.UUID, assignedTo *uuid.UUID, offset, limit int) ([]domain.Document, int, error) {
-	countQuery := "SELECT COUNT(*) FROM documents WHERE tenant_id = $1"
-	selectQuery := "SELECT * FROM documents WHERE tenant_id = $1"
-	args := []interface{}{tenantID}
-
-	if assignedTo != nil {
-		countQuery += fmt.Sprintf(" AND assigned_to = $%d", len(args)+1)
-		selectQuery += fmt.Sprintf(" AND assigned_to = $%d", len(args)+1)
-		args = append(args, *assignedTo)
-	}
+func (r *documentRepo) ListByTenant(ctx context.Context, tenantID uuid.UUID, filters *port.DocumentListFilters, offset, limit int) ([]domain.Document, int, error) {
+	baseWhere := "WHERE tenant_id = $1"
+	args := make([]interface{}, 0, 10) // 1 base + up to 7 filters + limit + offset
+	args = append(args, tenantID)
+	baseWhere, args = appendListFilters(baseWhere, args, filters, "")
 
 	var total int
-	if err := r.db.GetContext(ctx, &total, countQuery, args...); err != nil {
+	if err := r.db.GetContext(ctx, &total, "SELECT COUNT(*) FROM documents "+baseWhere, args...); err != nil {
 		return nil, 0, fmt.Errorf("documentRepo.ListByTenant count: %w", err)
 	}
 
-	selectQuery += fmt.Sprintf(" ORDER BY created_at DESC LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
+	selectQuery := fmt.Sprintf("SELECT * FROM documents %s ORDER BY created_at DESC LIMIT $%d OFFSET $%d",
+		baseWhere, len(args)+1, len(args)+2)
 	args = append(args, limit, offset)
 
 	var docs []domain.Document
@@ -145,27 +179,22 @@ func (r *documentRepo) ListByTenant(ctx context.Context, tenantID uuid.UUID, ass
 	return docs, total, nil
 }
 
-func (r *documentRepo) ListByUserCollections(ctx context.Context, tenantID, userID uuid.UUID, assignedTo *uuid.UUID, offset, limit int) ([]domain.Document, int, error) {
-	countQuery := `SELECT COUNT(*) FROM documents d
-		 INNER JOIN collection_permissions cp ON cp.collection_id = d.collection_id
-		 WHERE d.tenant_id = $1 AND cp.user_id = $2`
-	selectQuery := `SELECT d.* FROM documents d
-		 INNER JOIN collection_permissions cp ON cp.collection_id = d.collection_id
-		 WHERE d.tenant_id = $1 AND cp.user_id = $2`
-	args := []interface{}{tenantID, userID}
+func (r *documentRepo) ListByUserCollections(ctx context.Context, tenantID, userID uuid.UUID, filters *port.DocumentListFilters, offset, limit int) ([]domain.Document, int, error) {
+	baseWhere := `WHERE d.tenant_id = $1 AND cp.user_id = $2`
+	args := make([]interface{}, 0, 11) // 2 base + up to 7 filters + limit + offset
+	args = append(args, tenantID, userID)
+	baseWhere, args = appendListFilters(baseWhere, args, filters, "d.")
 
-	if assignedTo != nil {
-		countQuery += fmt.Sprintf(" AND d.assigned_to = $%d", len(args)+1)
-		selectQuery += fmt.Sprintf(" AND d.assigned_to = $%d", len(args)+1)
-		args = append(args, *assignedTo)
-	}
+	fromJoin := `FROM documents d
+		 INNER JOIN collection_permissions cp ON cp.collection_id = d.collection_id`
 
 	var total int
-	if err := r.db.GetContext(ctx, &total, countQuery, args...); err != nil {
+	if err := r.db.GetContext(ctx, &total, "SELECT COUNT(*) "+fromJoin+" "+baseWhere, args...); err != nil {
 		return nil, 0, fmt.Errorf("documentRepo.ListByUserCollections count: %w", err)
 	}
 
-	selectQuery += fmt.Sprintf(" ORDER BY d.created_at DESC LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
+	selectQuery := fmt.Sprintf("SELECT d.* %s %s ORDER BY d.created_at DESC LIMIT $%d OFFSET $%d",
+		fromJoin, baseWhere, len(args)+1, len(args)+2)
 	args = append(args, limit, offset)
 
 	var docs []domain.Document
@@ -175,29 +204,23 @@ func (r *documentRepo) ListByUserCollections(ctx context.Context, tenantID, user
 	return docs, total, nil
 }
 
-func (r *documentRepo) ListByServiceAccountCollections(ctx context.Context, tenantID, saID uuid.UUID, assignedTo *uuid.UUID, offset, limit int) ([]domain.Document, int, error) {
-	countQuery := `SELECT COUNT(*) FROM documents d
-		 INNER JOIN service_account_permissions sap
-		     ON sap.collection_id = d.collection_id AND sap.service_account_id = $2 AND sap.tenant_id = $1
-		 WHERE d.tenant_id = $1`
-	selectQuery := `SELECT d.* FROM documents d
-		 INNER JOIN service_account_permissions sap
-		     ON sap.collection_id = d.collection_id AND sap.service_account_id = $2 AND sap.tenant_id = $1
-		 WHERE d.tenant_id = $1`
-	args := []interface{}{tenantID, saID}
+func (r *documentRepo) ListByServiceAccountCollections(ctx context.Context, tenantID, saID uuid.UUID, filters *port.DocumentListFilters, offset, limit int) ([]domain.Document, int, error) {
+	baseWhere := `WHERE d.tenant_id = $1`
+	args := make([]interface{}, 0, 11) // 2 base + up to 7 filters + limit + offset
+	args = append(args, tenantID, saID)
+	baseWhere, args = appendListFilters(baseWhere, args, filters, "d.")
 
-	if assignedTo != nil {
-		countQuery += fmt.Sprintf(" AND d.assigned_to = $%d", len(args)+1)
-		selectQuery += fmt.Sprintf(" AND d.assigned_to = $%d", len(args)+1)
-		args = append(args, *assignedTo)
-	}
+	fromJoin := `FROM documents d
+		 INNER JOIN service_account_permissions sap
+		     ON sap.collection_id = d.collection_id AND sap.service_account_id = $2 AND sap.tenant_id = $1`
 
 	var total int
-	if err := r.db.GetContext(ctx, &total, countQuery, args...); err != nil {
+	if err := r.db.GetContext(ctx, &total, "SELECT COUNT(*) "+fromJoin+" "+baseWhere, args...); err != nil {
 		return nil, 0, fmt.Errorf("documentRepo.ListByServiceAccountCollections count: %w", err)
 	}
 
-	selectQuery += fmt.Sprintf(" ORDER BY d.created_at DESC LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
+	selectQuery := fmt.Sprintf("SELECT d.* %s %s ORDER BY d.created_at DESC LIMIT $%d OFFSET $%d",
+		fromJoin, baseWhere, len(args)+1, len(args)+2)
 	args = append(args, limit, offset)
 
 	var docs []domain.Document

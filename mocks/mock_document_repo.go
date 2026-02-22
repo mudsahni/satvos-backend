@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"satvos/internal/domain"
+	"satvos/internal/port"
 )
 
 // MockDocumentRepo is a mock implementation of port.DocumentRepository.
@@ -36,32 +37,32 @@ func (m *MockDocumentRepo) GetByFileID(ctx context.Context, tenantID, fileID uui
 	return args.Get(0).(*domain.Document), args.Error(1)
 }
 
-func (m *MockDocumentRepo) ListByCollection(ctx context.Context, tenantID, collectionID uuid.UUID, assignedTo *uuid.UUID, offset, limit int) ([]domain.Document, int, error) {
-	args := m.Called(ctx, tenantID, collectionID, assignedTo, offset, limit)
+func (m *MockDocumentRepo) ListByCollection(ctx context.Context, tenantID, collectionID uuid.UUID, filters *port.DocumentListFilters, offset, limit int) ([]domain.Document, int, error) {
+	args := m.Called(ctx, tenantID, collectionID, filters, offset, limit)
 	if args.Get(0) == nil {
 		return nil, args.Int(1), args.Error(2)
 	}
 	return args.Get(0).([]domain.Document), args.Int(1), args.Error(2)
 }
 
-func (m *MockDocumentRepo) ListByTenant(ctx context.Context, tenantID uuid.UUID, assignedTo *uuid.UUID, offset, limit int) ([]domain.Document, int, error) {
-	args := m.Called(ctx, tenantID, assignedTo, offset, limit)
+func (m *MockDocumentRepo) ListByTenant(ctx context.Context, tenantID uuid.UUID, filters *port.DocumentListFilters, offset, limit int) ([]domain.Document, int, error) {
+	args := m.Called(ctx, tenantID, filters, offset, limit)
 	if args.Get(0) == nil {
 		return nil, args.Int(1), args.Error(2)
 	}
 	return args.Get(0).([]domain.Document), args.Int(1), args.Error(2)
 }
 
-func (m *MockDocumentRepo) ListByUserCollections(ctx context.Context, tenantID, userID uuid.UUID, assignedTo *uuid.UUID, offset, limit int) ([]domain.Document, int, error) {
-	args := m.Called(ctx, tenantID, userID, assignedTo, offset, limit)
+func (m *MockDocumentRepo) ListByUserCollections(ctx context.Context, tenantID, userID uuid.UUID, filters *port.DocumentListFilters, offset, limit int) ([]domain.Document, int, error) {
+	args := m.Called(ctx, tenantID, userID, filters, offset, limit)
 	if args.Get(0) == nil {
 		return nil, args.Int(1), args.Error(2)
 	}
 	return args.Get(0).([]domain.Document), args.Int(1), args.Error(2)
 }
 
-func (m *MockDocumentRepo) ListByServiceAccountCollections(ctx context.Context, tenantID, saID uuid.UUID, assignedTo *uuid.UUID, offset, limit int) ([]domain.Document, int, error) {
-	args := m.Called(ctx, tenantID, saID, assignedTo, offset, limit)
+func (m *MockDocumentRepo) ListByServiceAccountCollections(ctx context.Context, tenantID, saID uuid.UUID, filters *port.DocumentListFilters, offset, limit int) ([]domain.Document, int, error) {
+	args := m.Called(ctx, tenantID, saID, filters, offset, limit)
 	if args.Get(0) == nil {
 		return nil, args.Int(1), args.Error(2)
 	}

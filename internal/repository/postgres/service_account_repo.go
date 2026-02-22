@@ -234,6 +234,17 @@ func (r *serviceAccountPermissionRepo) ListByAccount(ctx context.Context, tenant
 	return perms, nil
 }
 
+func (r *serviceAccountPermissionRepo) ListCollectionIDs(ctx context.Context, tenantID, saID uuid.UUID) ([]uuid.UUID, error) {
+	var ids []uuid.UUID
+	err := r.db.SelectContext(ctx, &ids,
+		"SELECT DISTINCT collection_id FROM service_account_permissions WHERE tenant_id = $1 AND service_account_id = $2",
+		tenantID, saID)
+	if err != nil {
+		return nil, fmt.Errorf("serviceAccountPermissionRepo.ListCollectionIDs: %w", err)
+	}
+	return ids, nil
+}
+
 func (r *serviceAccountPermissionRepo) Delete(ctx context.Context, tenantID, saID, collectionID uuid.UUID) error {
 	result, err := r.db.ExecContext(ctx,
 		"DELETE FROM service_account_permissions WHERE tenant_id = $1 AND service_account_id = $2 AND collection_id = $3",

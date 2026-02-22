@@ -321,10 +321,11 @@ func TestDocumentService_ListByCollection_Success(t *testing.T) {
 	permRepo.On("GetByCollectionAndUser", mock.Anything, mock.Anything, mock.Anything).
 		Return(nil, errors.New("not found")).Maybe()
 
-	docRepo.On("ListByCollection", mock.Anything, tenantID, collectionID, (*uuid.UUID)(nil), 0, 20).
+	filters := &port.DocumentListFilters{}
+	docRepo.On("ListByCollection", mock.Anything, tenantID, collectionID, filters, 0, 20).
 		Return(expected, 2, nil)
 
-	docs, total, err := svc.ListByCollection(context.Background(), tenantID, collectionID, userID, domain.RoleAdmin, nil, 0, 20)
+	docs, total, err := svc.ListByCollection(context.Background(), tenantID, collectionID, userID, domain.RoleAdmin, filters, 0, 20)
 
 	assert.NoError(t, err)
 	assert.Len(t, docs, 2)
@@ -341,10 +342,11 @@ func TestDocumentService_ListByCollection_Empty(t *testing.T) {
 	permRepo.On("GetByCollectionAndUser", mock.Anything, mock.Anything, mock.Anything).
 		Return(nil, errors.New("not found")).Maybe()
 
-	docRepo.On("ListByCollection", mock.Anything, tenantID, collectionID, (*uuid.UUID)(nil), 0, 20).
+	filters := &port.DocumentListFilters{}
+	docRepo.On("ListByCollection", mock.Anything, tenantID, collectionID, filters, 0, 20).
 		Return([]domain.Document{}, 0, nil)
 
-	docs, total, err := svc.ListByCollection(context.Background(), tenantID, collectionID, userID, domain.RoleAdmin, nil, 0, 20)
+	docs, total, err := svc.ListByCollection(context.Background(), tenantID, collectionID, userID, domain.RoleAdmin, filters, 0, 20)
 
 	assert.NoError(t, err)
 	assert.Empty(t, docs)
@@ -363,10 +365,11 @@ func TestDocumentService_ListByTenant_Success(t *testing.T) {
 		{ID: uuid.New(), TenantID: tenantID},
 	}
 
-	docRepo.On("ListByTenant", mock.Anything, tenantID, (*uuid.UUID)(nil), 0, 20).
+	filters := &port.DocumentListFilters{}
+	docRepo.On("ListByTenant", mock.Anything, tenantID, filters, 0, 20).
 		Return(expected, 1, nil)
 
-	docs, total, err := svc.ListByTenant(context.Background(), tenantID, userID, domain.RoleAdmin, nil, 0, 20)
+	docs, total, err := svc.ListByTenant(context.Background(), tenantID, userID, domain.RoleAdmin, filters, 0, 20)
 
 	assert.NoError(t, err)
 	assert.Len(t, docs, 1)

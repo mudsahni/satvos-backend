@@ -9,15 +9,32 @@ import (
 	"satvos/internal/domain"
 )
 
+// DocumentListFilters carries optional server-side filters for document listing.
+type DocumentListFilters struct {
+	AssignedTo           *uuid.UUID
+	SellerName           *string
+	BuyerName            *string
+	ParsingStatus        *domain.ParsingStatus
+	ReviewStatus         *domain.ReviewStatus
+	ValidationStatus     *domain.ValidationStatus
+	ReconciliationStatus *domain.ReconciliationStatus
+}
+
+// TagFacet represents a tag value with its document count.
+type TagFacet struct {
+	Value string `json:"value" db:"value"`
+	Count int    `json:"count" db:"count"`
+}
+
 // DocumentRepository defines the contract for document persistence.
 type DocumentRepository interface {
 	Create(ctx context.Context, doc *domain.Document) error
 	GetByID(ctx context.Context, tenantID, docID uuid.UUID) (*domain.Document, error)
 	GetByFileID(ctx context.Context, tenantID, fileID uuid.UUID) (*domain.Document, error)
-	ListByCollection(ctx context.Context, tenantID, collectionID uuid.UUID, assignedTo *uuid.UUID, offset, limit int) ([]domain.Document, int, error)
-	ListByTenant(ctx context.Context, tenantID uuid.UUID, assignedTo *uuid.UUID, offset, limit int) ([]domain.Document, int, error)
-	ListByUserCollections(ctx context.Context, tenantID, userID uuid.UUID, assignedTo *uuid.UUID, offset, limit int) ([]domain.Document, int, error)
-	ListByServiceAccountCollections(ctx context.Context, tenantID, saID uuid.UUID, assignedTo *uuid.UUID, offset, limit int) ([]domain.Document, int, error)
+	ListByCollection(ctx context.Context, tenantID, collectionID uuid.UUID, filters *DocumentListFilters, offset, limit int) ([]domain.Document, int, error)
+	ListByTenant(ctx context.Context, tenantID uuid.UUID, filters *DocumentListFilters, offset, limit int) ([]domain.Document, int, error)
+	ListByUserCollections(ctx context.Context, tenantID, userID uuid.UUID, filters *DocumentListFilters, offset, limit int) ([]domain.Document, int, error)
+	ListByServiceAccountCollections(ctx context.Context, tenantID, saID uuid.UUID, filters *DocumentListFilters, offset, limit int) ([]domain.Document, int, error)
 	UpdateStructuredData(ctx context.Context, doc *domain.Document) error
 	UpdateReviewStatus(ctx context.Context, doc *domain.Document) error
 	UpdateAssignment(ctx context.Context, doc *domain.Document) error
@@ -33,6 +50,7 @@ type DocumentTagRepository interface {
 	CreateBatch(ctx context.Context, tags []domain.DocumentTag) error
 	ListByDocument(ctx context.Context, documentID uuid.UUID) ([]domain.DocumentTag, error)
 	SearchByTag(ctx context.Context, tenantID uuid.UUID, key, value string, offset, limit int) ([]domain.Document, int, error)
+	FacetsByKeys(ctx context.Context, tenantID uuid.UUID, keys []string, collectionIDs []uuid.UUID) (map[string][]TagFacet, error)
 	DeleteByID(ctx context.Context, documentID, tagID uuid.UUID) error
 	DeleteByDocument(ctx context.Context, documentID uuid.UUID) error
 	DeleteByDocumentAndSource(ctx context.Context, documentID uuid.UUID, source string) error

@@ -357,7 +357,7 @@ func TestDocumentHandler_List_ByTenant(t *testing.T) {
 		{ID: uuid.New(), TenantID: tenantID, ParsingStatus: domain.ParsingStatusCompleted},
 	}
 
-	mockSvc.On("ListByTenant", mock.Anything, tenantID, userID, domain.UserRole("member"), (*uuid.UUID)(nil), 0, 20).Return(docs, 1, nil)
+	mockSvc.On("ListByTenant", mock.Anything, tenantID, userID, domain.UserRole("member"), mock.Anything, 0, 20).Return(docs, 1, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
@@ -387,7 +387,7 @@ func TestDocumentHandler_List_ByCollection(t *testing.T) {
 		{ID: uuid.New(), TenantID: tenantID, CollectionID: collectionID},
 	}
 
-	mockSvc.On("ListByCollection", mock.Anything, tenantID, collectionID, userID, domain.UserRole("member"), (*uuid.UUID)(nil), 0, 20).
+	mockSvc.On("ListByCollection", mock.Anything, tenantID, collectionID, userID, domain.UserRole("member"), mock.Anything, 0, 20).
 		Return(docs, 1, nil)
 
 	w := httptest.NewRecorder()

@@ -1488,7 +1488,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "List documents with optional collection and assignment filters",
+                "description": "List documents with optional collection, assignment, status, and tag filters",
                 "produces": [
                     "application/json"
                 ],
@@ -1522,6 +1522,42 @@ const docTemplate = `{
                         "description": "Filter by assigned user ID",
                         "name": "assigned_to",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by seller name (exact match via tags)",
+                        "name": "seller_name",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by buyer name (exact match via tags)",
+                        "name": "buyer_name",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by parsing status",
+                        "name": "parsing_status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by review status",
+                        "name": "review_status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by validation status",
+                        "name": "validation_status",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by reconciliation status",
+                        "name": "reconciliation_status",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -1550,7 +1586,7 @@ const docTemplate = `{
                         }
                     },
                     "400": {
-                        "description": "Invalid collection_id or assigned_to",
+                        "description": "Invalid filter parameter",
                         "schema": {
                             "$ref": "#/definitions/handler.ErrorResponseBody"
                         }
@@ -1780,6 +1816,70 @@ const docTemplate = `{
                     },
                     "400": {
                         "description": "Missing key or value",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponseBody"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponseBody"
+                        }
+                    }
+                }
+            }
+        },
+        "/documents/tags/facets": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns distinct tag values with document counts, role-scoped",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "documents"
+                ],
+                "summary": "Get tag facets for filter dropdowns",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Comma-separated tag keys (e.g. seller_name,buyer_name)",
+                        "name": "keys",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Tag facets",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/handler.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object",
+                                            "additionalProperties": {
+                                                "type": "array",
+                                                "items": {
+                                                    "$ref": "#/definitions/port.TagFacet"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid or missing keys",
                         "schema": {
                             "$ref": "#/definitions/handler.ErrorResponseBody"
                         }
@@ -3918,7 +4018,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Get user details (self or admin access)",
+                "description": "Get user details. Any authenticated user in the tenant can view any other user's profile.",
                 "produces": [
                     "application/json"
                 ],
@@ -3962,12 +4062,6 @@ const docTemplate = `{
                     },
                     "401": {
                         "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/handler.ErrorResponseBody"
-                        }
-                    },
-                    "403": {
-                        "description": "Forbidden",
                         "schema": {
                             "$ref": "#/definitions/handler.ErrorResponseBody"
                         }
@@ -5729,6 +5823,17 @@ const docTemplate = `{
                 "warnings": {
                     "type": "integer",
                     "example": 2
+                }
+            }
+        },
+        "port.TagFacet": {
+            "type": "object",
+            "properties": {
+                "count": {
+                    "type": "integer"
+                },
+                "value": {
+                    "type": "string"
                 }
             }
         }
