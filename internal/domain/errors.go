@@ -38,4 +38,5 @@ var (
 	ErrInvitationPending         = errors.New("please accept your invitation before logging in")
 	ErrInvitationTokenInvalid    = errors.New("invitation token is invalid or has already been used")
 	ErrInvitationAlreadyAccepted = errors.New("invitation has already been accepted")
+	ErrInvalidAllowedSender      = errors.New("invalid allowed sender entry")
 )

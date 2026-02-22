@@ -28,6 +28,7 @@ func Setup(
 	corsOrigins []string,
 	userRepo port.UserRepository,
 	saSvc service.ServiceAccountService,
+	emailConfigH *handler.EmailConfigHandler,
 ) *gin.Engine {
 	r := gin.New()
 
@@ -161,6 +162,10 @@ func Setup(
 	admin.GET("/tenants/:id", tenantH.GetByID)
 	admin.PUT("/tenants/:id", tenantH.Update)
 	admin.DELETE("/tenants/:id", tenantH.Delete)
+
+	// Email processing config
+	admin.GET("/email-config", emailConfigH.GetConfig)
+	admin.PUT("/email-config", emailConfigH.UpdateConfig)
 
 	return r
 }

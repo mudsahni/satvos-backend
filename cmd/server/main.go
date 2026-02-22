@@ -21,6 +21,7 @@ import (
 	geminiparser "satvos/internal/parser/gemini"
 	openaiparser "satvos/internal/parser/openai"
 	"satvos/internal/port"
+	ddbrepo "satvos/internal/repository/dynamodb"
 	"satvos/internal/repository/postgres"
 	"satvos/internal/router"
 	"satvos/internal/service"
@@ -147,6 +148,17 @@ func run() error {
 		return err
 	}
 
+	// Initialize DynamoDB email config (nil-safe if not configured)
+	var emailConfigSvc service.EmailConfigService
+	if cfg.DynamoDB.TableName != "" {
+		emailConfigRepo, ddbErr := ddbrepo.NewEmailConfigRepo(&cfg.DynamoDB)
+		if ddbErr != nil {
+			log.Printf("WARNING: failed to initialize DynamoDB: %v", ddbErr)
+		} else {
+			emailConfigSvc = service.NewEmailConfigService(emailConfigRepo, tenantRepo, serviceAccountSvc, cfg.Server.APIBaseURL)
+		}
+	}
+
 	registrationSvc := service.NewRegistrationService(tenantRepo, userRepo, collectionRepo, collectionPermRepo, authSvc, emailSender, cfg.JWT, cfg.FreeTier)
 	passwordResetSvc := service.NewPasswordResetService(tenantRepo, userRepo, emailSender, cfg.JWT)
 	socialAuthSvc := initSocialAuth(cfg, tenantRepo, userRepo, collectionRepo, collectionPermRepo, authSvc)
@@ -176,9 +188,10 @@ func run() error {
 	statsH := handler.NewStatsHandler(statsSvc)
 	reportH := handler.NewReportHandler(reportSvc)
 	serviceAccountH := handler.NewServiceAccountHandler(serviceAccountSvc)
+	emailConfigH := handler.NewEmailConfigHandler(emailConfigSvc)
 
 	// Setup router and start server
-	r := router.Setup(authSvc, authH, fileH, tenantH, userH, healthH, collectionH, documentH, statsH, reportH, serviceAccountH, cfg.CORS.AllowedOrigins, userRepo, serviceAccountSvc)
+	r := router.Setup(authSvc, authH, fileH, tenantH, userH, healthH, collectionH, documentH, statsH, reportH, serviceAccountH, cfg.CORS.AllowedOrigins, userRepo, serviceAccountSvc, emailConfigH)
 
 	log.Printf("Server starting on %s", cfg.Server.Port)
 	if err := r.Run(cfg.Server.Port); err != nil {

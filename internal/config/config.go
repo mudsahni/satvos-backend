@@ -22,6 +22,16 @@ type Config struct {
 	FreeTier   FreeTierConfig
 	Email      EmailConfig
 	GoogleAuth GoogleAuthConfig
+	DynamoDB   DynamoDBConfig
+}
+
+// DynamoDBConfig holds DynamoDB settings for email processing config.
+type DynamoDBConfig struct {
+	TableName string `mapstructure:"table_name"`
+	Region    string `mapstructure:"region"`
+	Endpoint  string `mapstructure:"endpoint"`
+	AccessKey string `mapstructure:"access_key"`
+	SecretKey string `mapstructure:"secret_key"`
 }
 
 // GoogleAuthConfig holds Google OAuth settings.
@@ -118,6 +128,7 @@ type ServerConfig struct {
 	ReadTimeout  time.Duration `mapstructure:"read_timeout"`
 	WriteTimeout time.Duration `mapstructure:"write_timeout"`
 	Environment  string        `mapstructure:"environment"`
+	APIBaseURL   string        `mapstructure:"api_base_url"`
 }
 
 // DBConfig holds PostgreSQL connection settings.
@@ -189,6 +200,7 @@ func Load() (*Config, error) {
 		FreeTier:   buildFreeTierConfig(v),
 		Email:      buildEmailConfig(v),
 		GoogleAuth: buildGoogleAuthConfig(v),
+		DynamoDB:   buildDynamoDBConfig(v),
 	}, nil
 }
 
@@ -198,6 +210,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("server.read_timeout", "15s")
 	v.SetDefault("server.write_timeout", "15s")
 	v.SetDefault("server.environment", "development")
+	v.SetDefault("server.api_base_url", "http://localhost:8080")
 
 	// DB
 	v.SetDefault("db.host", "localhost")
@@ -250,6 +263,13 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("free_tier.tenant_slug", "satvos")
 	v.SetDefault("free_tier.monthly_limit", 5)
 
+	// DynamoDB
+	v.SetDefault("dynamodb.table_name", "")
+	v.SetDefault("dynamodb.region", "ap-south-1")
+	v.SetDefault("dynamodb.endpoint", "")
+	v.SetDefault("dynamodb.access_key", "")
+	v.SetDefault("dynamodb.secret_key", "")
+
 	// Parser (legacy flat)
 	v.SetDefault("parser.provider", "claude")
 	v.SetDefault("parser.api_key", "")
@@ -281,6 +301,7 @@ func bindEnvVars(v *viper.Viper) error {
 		"server.read_timeout":  "SATVOS_SERVER_READ_TIMEOUT",
 		"server.write_timeout": "SATVOS_SERVER_WRITE_TIMEOUT",
 		"server.environment":   "SATVOS_SERVER_ENVIRONMENT",
+		"server.api_base_url":  "SATVOS_SERVER_API_BASE_URL",
 		"db.host":              "SATVOS_DB_HOST",
 		"db.port":              "SATVOS_DB_PORT",
 		"db.user":              "SATVOS_DB_USER",
@@ -336,6 +357,11 @@ func bindEnvVars(v *viper.Viper) error {
 		"free_tier.tenant_slug":          "SATVOS_FREE_TIER_TENANT_SLUG",
 		"free_tier.monthly_limit":        "SATVOS_FREE_TIER_MONTHLY_LIMIT",
 		"google_auth.client_id":          "SATVOS_GOOGLE_AUTH_CLIENT_ID",
+		"dynamodb.table_name":            "SATVOS_DYNAMODB_TABLE_NAME",
+		"dynamodb.region":                "SATVOS_DYNAMODB_REGION",
+		"dynamodb.endpoint":              "SATVOS_DYNAMODB_ENDPOINT",
+		"dynamodb.access_key":            "SATVOS_DYNAMODB_ACCESS_KEY",
+		"dynamodb.secret_key":            "SATVOS_DYNAMODB_SECRET_KEY",
 	}
 	for key, env := range envBindings {
 		if err := v.BindEnv(key, env); err != nil {
@@ -356,6 +382,7 @@ func buildServerConfig(v *viper.Viper) ServerConfig {
 		ReadTimeout:  v.GetDuration("server.read_timeout"),
 		WriteTimeout: v.GetDuration("server.write_timeout"),
 		Environment:  v.GetString("server.environment"),
+		APIBaseURL:   v.GetString("server.api_base_url"),
 	}
 }
 
@@ -472,5 +499,15 @@ func buildEmailConfig(v *viper.Viper) EmailConfig {
 func buildGoogleAuthConfig(v *viper.Viper) GoogleAuthConfig {
 	return GoogleAuthConfig{
 		ClientID: v.GetString("google_auth.client_id"),
+	}
+}
+
+func buildDynamoDBConfig(v *viper.Viper) DynamoDBConfig {
+	return DynamoDBConfig{
+		TableName: v.GetString("dynamodb.table_name"),
+		Region:    v.GetString("dynamodb.region"),
+		Endpoint:  v.GetString("dynamodb.endpoint"),
+		AccessKey: v.GetString("dynamodb.access_key"),
+		SecretKey: v.GetString("dynamodb.secret_key"),
 	}
 }
