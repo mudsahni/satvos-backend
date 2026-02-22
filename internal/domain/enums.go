@@ -131,6 +131,15 @@ const (
 	ParsingStatusQueued     ParsingStatus = "queued"
 )
 
+// ValidParsingStatuses maps valid parsing status strings for filter validation.
+var ValidParsingStatuses = map[ParsingStatus]bool{
+	ParsingStatusPending:    true,
+	ParsingStatusProcessing: true,
+	ParsingStatusCompleted:  true,
+	ParsingStatusFailed:     true,
+	ParsingStatusQueued:     true,
+}
+
 // ReviewStatus represents the human review state of a document.
 type ReviewStatus string
 
@@ -139,6 +148,13 @@ const (
 	ReviewStatusApproved ReviewStatus = "approved"
 	ReviewStatusRejected ReviewStatus = "rejected"
 )
+
+// ValidReviewStatuses maps valid review status strings for filter validation.
+var ValidReviewStatuses = map[ReviewStatus]bool{
+	ReviewStatusPending:  true,
+	ReviewStatusApproved: true,
+	ReviewStatusRejected: true,
+}
 
 // ValidationRuleType defines the kind of validation to perform.
 type ValidationRuleType string
@@ -169,6 +185,14 @@ const (
 	ValidationStatusWarning ValidationStatus = "warning"
 )
 
+// ValidValidationStatuses maps valid validation status strings for filter validation.
+var ValidValidationStatuses = map[ValidationStatus]bool{
+	ValidationStatusPending: true,
+	ValidationStatusValid:   true,
+	ValidationStatusInvalid: true,
+	ValidationStatusWarning: true,
+}
+
 // ReconciliationStatus represents the GST reconciliation readiness of a document.
 type ReconciliationStatus string
 
@@ -178,6 +202,14 @@ const (
 	ReconciliationStatusInvalid ReconciliationStatus = "invalid"
 	ReconciliationStatusWarning ReconciliationStatus = "warning"
 )
+
+// ValidReconciliationStatuses maps valid reconciliation status strings for filter validation.
+var ValidReconciliationStatuses = map[ReconciliationStatus]bool{
+	ReconciliationStatusPending: true,
+	ReconciliationStatusValid:   true,
+	ReconciliationStatusInvalid: true,
+	ReconciliationStatusWarning: true,
+}
 
 // ParseMode defines how document parsing is performed.
 type ParseMode string

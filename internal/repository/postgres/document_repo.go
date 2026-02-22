@@ -95,44 +95,45 @@ func (r *documentRepo) GetByFileID(ctx context.Context, tenantID, fileID uuid.UU
 
 // appendListFilters appends optional filter clauses to a base WHERE query.
 // tableAlias should be empty for unaliased queries or "d." for JOINed queries.
-func appendListFilters(baseQuery string, args []interface{}, filters *port.DocumentListFilters, tableAlias string) (query string, out []interface{}) {
+func appendListFilters(baseWhere string, baseArgs []interface{}, filters *port.DocumentListFilters, tableAlias string) (query string, args []interface{}) {
+	query, args = baseWhere, baseArgs
 	if filters == nil {
-		return baseQuery, args
+		return
 	}
 
 	if filters.AssignedTo != nil {
 		args = append(args, *filters.AssignedTo)
-		baseQuery += fmt.Sprintf(" AND %sassigned_to = $%d", tableAlias, len(args))
+		query += fmt.Sprintf(" AND %sassigned_to = $%d", tableAlias, len(args))
 	}
 	if filters.ParsingStatus != nil {
 		args = append(args, string(*filters.ParsingStatus))
-		baseQuery += fmt.Sprintf(" AND %sparsing_status = $%d", tableAlias, len(args))
+		query += fmt.Sprintf(" AND %sparsing_status = $%d", tableAlias, len(args))
 	}
 	if filters.ReviewStatus != nil {
 		args = append(args, string(*filters.ReviewStatus))
-		baseQuery += fmt.Sprintf(" AND %sreview_status = $%d", tableAlias, len(args))
+		query += fmt.Sprintf(" AND %sreview_status = $%d", tableAlias, len(args))
 	}
 	if filters.ValidationStatus != nil {
 		args = append(args, string(*filters.ValidationStatus))
-		baseQuery += fmt.Sprintf(" AND %svalidation_status = $%d", tableAlias, len(args))
+		query += fmt.Sprintf(" AND %svalidation_status = $%d", tableAlias, len(args))
 	}
 	if filters.ReconciliationStatus != nil {
 		args = append(args, string(*filters.ReconciliationStatus))
-		baseQuery += fmt.Sprintf(" AND %sreconciliation_status = $%d", tableAlias, len(args))
+		query += fmt.Sprintf(" AND %sreconciliation_status = $%d", tableAlias, len(args))
 	}
 	if filters.SellerName != nil {
 		args = append(args, *filters.SellerName)
-		baseQuery += fmt.Sprintf(
+		query += fmt.Sprintf(
 			" AND EXISTS (SELECT 1 FROM document_tags dt WHERE dt.document_id = %sid AND dt.key = 'seller_name' AND dt.value = $%d)",
 			tableAlias, len(args))
 	}
 	if filters.BuyerName != nil {
 		args = append(args, *filters.BuyerName)
-		baseQuery += fmt.Sprintf(
+		query += fmt.Sprintf(
 			" AND EXISTS (SELECT 1 FROM document_tags dt WHERE dt.document_id = %sid AND dt.key = 'buyer_name' AND dt.value = $%d)",
 			tableAlias, len(args))
 	}
-	return baseQuery, args
+	return
 }
 
 func (r *documentRepo) ListByCollection(ctx context.Context, tenantID, collectionID uuid.UUID, filters *port.DocumentListFilters, offset, limit int) ([]domain.Document, int, error) {

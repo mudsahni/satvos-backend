@@ -113,35 +113,64 @@ func (r *documentTagRepo) DeleteByDocument(ctx context.Context, documentID uuid.
 
 func (r *documentTagRepo) FacetsByKeys(ctx context.Context, tenantID uuid.UUID, keys []string, collectionIDs []uuid.UUID) (map[string][]port.TagFacet, error) {
 	result := make(map[string][]port.TagFacet, len(keys))
-	for _, key := range keys {
-		var facets []port.TagFacet
-		if len(collectionIDs) == 0 {
-			err := r.db.SelectContext(ctx, &facets,
-				`SELECT dt.value, COUNT(DISTINCT dt.document_id) as count
-				 FROM document_tags dt
-				 WHERE dt.tenant_id = $1 AND dt.key = $2
-				 GROUP BY dt.value ORDER BY count DESC`,
-				tenantID, key)
-			if err != nil {
-				return nil, fmt.Errorf("documentTagRepo.FacetsByKeys: %w", err)
-			}
-		} else {
-			query, args, err := sqlx.In(
-				`SELECT dt.value, COUNT(DISTINCT dt.document_id) as count
-				 FROM document_tags dt
-				 INNER JOIN documents d ON d.id = dt.document_id
-				 WHERE dt.tenant_id = ? AND dt.key = ? AND d.collection_id IN (?)
-				 GROUP BY dt.value ORDER BY count DESC`,
-				tenantID, key, collectionIDs)
-			if err != nil {
-				return nil, fmt.Errorf("documentTagRepo.FacetsByKeys expand IN: %w", err)
-			}
-			query = r.db.Rebind(query)
-			if err := r.db.SelectContext(ctx, &facets, query, args...); err != nil {
-				return nil, fmt.Errorf("documentTagRepo.FacetsByKeys: %w", err)
-			}
-		}
-		result[key] = facets
+	for _, k := range keys {
+		result[k] = []port.TagFacet{}
+	}
+
+	if len(keys) == 0 {
+		return result, nil
+	}
+
+	// nil = all collections (admin/manager/member); empty = no access (return empty facets)
+	if collectionIDs != nil && len(collectionIDs) == 0 {
+		return result, nil
+	}
+
+	const facetLimit = 100
+
+	var rawQuery string
+	var inArgs []interface{}
+	var err error
+
+	if collectionIDs == nil {
+		rawQuery, inArgs, err = sqlx.In(
+			`SELECT key, value, count FROM (
+				SELECT dt.key, dt.value, COUNT(DISTINCT dt.document_id) AS count,
+					ROW_NUMBER() OVER (PARTITION BY dt.key ORDER BY COUNT(DISTINCT dt.document_id) DESC) AS rn
+				FROM document_tags dt
+				WHERE dt.tenant_id = ? AND dt.key IN (?)
+				GROUP BY dt.key, dt.value
+			) sub WHERE rn <= ?`,
+			tenantID, keys, facetLimit)
+	} else {
+		rawQuery, inArgs, err = sqlx.In(
+			`SELECT key, value, count FROM (
+				SELECT dt.key, dt.value, COUNT(DISTINCT dt.document_id) AS count,
+					ROW_NUMBER() OVER (PARTITION BY dt.key ORDER BY COUNT(DISTINCT dt.document_id) DESC) AS rn
+				FROM document_tags dt
+				INNER JOIN documents d ON d.id = dt.document_id
+				WHERE dt.tenant_id = ? AND dt.key IN (?) AND d.collection_id IN (?)
+				GROUP BY dt.key, dt.value
+			) sub WHERE rn <= ?`,
+			tenantID, keys, collectionIDs, facetLimit)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("documentTagRepo.FacetsByKeys expand IN: %w", err)
+	}
+	rawQuery = r.db.Rebind(rawQuery)
+
+	type facetRow struct {
+		Key   string `db:"key"`
+		Value string `db:"value"`
+		Count int    `db:"count"`
+	}
+	var rows []facetRow
+	if err := r.db.SelectContext(ctx, &rows, rawQuery, inArgs...); err != nil {
+		return nil, fmt.Errorf("documentTagRepo.FacetsByKeys: %w", err)
+	}
+
+	for i := range rows {
+		result[rows[i].Key] = append(result[rows[i].Key], port.TagFacet{Value: rows[i].Value, Count: rows[i].Count})
 	}
 	return result, nil
 }
