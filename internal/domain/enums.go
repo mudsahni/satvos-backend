@@ -271,3 +271,47 @@ const (
 	FileStatusFailed   FileStatus = "failed"
 	FileStatusDeleted  FileStatus = "deleted"
 )
+
+// AgentStatus represents the lifecycle status of a connector agent.
+type AgentStatus string
+
+const (
+	AgentStatusRegistered   AgentStatus = "registered"
+	AgentStatusOnline       AgentStatus = "online"
+	AgentStatusOffline      AgentStatus = "offline"
+	AgentStatusDisconnected AgentStatus = "disconnected"
+)
+
+// ValidAgentStatuses maps valid agent status strings for validation.
+var ValidAgentStatuses = map[AgentStatus]bool{
+	AgentStatusRegistered:   true,
+	AgentStatusOnline:       true,
+	AgentStatusOffline:      true,
+	AgentStatusDisconnected: true,
+}
+
+// SyncDirection indicates whether a sync event is agent-to-cloud or cloud-to-agent.
+type SyncDirection string
+
+const (
+	SyncDirectionInbound  SyncDirection = "inbound"
+	SyncDirectionOutbound SyncDirection = "outbound"
+)
+
+// SyncStatus represents the outcome of a sync event.
+type SyncStatus string
+
+const (
+	SyncStatusPending SyncStatus = "pending"
+	SyncStatusSuccess SyncStatus = "success"
+	SyncStatusFailed  SyncStatus = "failed"
+	SyncStatusSkipped SyncStatus = "skipped"
+)
+
+// ValidSyncStatuses maps valid sync status strings for validation.
+var ValidSyncStatuses = map[SyncStatus]bool{
+	SyncStatusPending: true,
+	SyncStatusSuccess: true,
+	SyncStatusFailed:  true,
+	SyncStatusSkipped: true,
+}

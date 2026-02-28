@@ -405,3 +405,132 @@ type FileMeta struct {
 	CreatedAt    time.Time  `db:"created_at" json:"created_at"`
 	UpdatedAt    time.Time  `db:"updated_at" json:"updated_at"`
 }
+
+// ConnectorAgent represents a registered on-premise Tally connector agent.
+type ConnectorAgent struct {
+	ID               uuid.UUID   `db:"id" json:"id"`
+	TenantID         uuid.UUID   `db:"tenant_id" json:"tenant_id"`
+	ServiceAccountID uuid.UUID   `db:"service_account_id" json:"service_account_id"`
+	AgentVersion     string      `db:"agent_version" json:"agent_version"`
+	TallyCompany     string      `db:"tally_company" json:"tally_company"`
+	TallyPort        int         `db:"tally_port" json:"tally_port"`
+	OSInfo           string      `db:"os_info" json:"os_info"`
+	Status           AgentStatus `db:"status" json:"status"`
+	LastHeartbeat    *time.Time  `db:"last_heartbeat" json:"last_heartbeat"`
+	RegisteredAt     time.Time   `db:"registered_at" json:"registered_at"`
+}
+
+// TallyLedger represents a ledger master from a customer's Tally instance.
+type TallyLedger struct {
+	ID          uuid.UUID `db:"id" json:"id"`
+	TenantID    uuid.UUID `db:"tenant_id" json:"tenant_id"`
+	Name        string    `db:"name" json:"name"`
+	ParentGroup string    `db:"parent_group" json:"parent_group"`
+	GSTIN       string    `db:"gstin" json:"gstin"`
+	State       string    `db:"state" json:"state"`
+	TaxType     string    `db:"tax_type" json:"tax_type"`
+	TaxRate     float64   `db:"tax_rate" json:"tax_rate"`
+	IsRevenue   bool      `db:"is_revenue" json:"is_revenue"`
+	SyncedAt    time.Time `db:"synced_at" json:"synced_at"`
+}
+
+// TallyStockItem represents a stock item master from a customer's Tally instance.
+type TallyStockItem struct {
+	ID          uuid.UUID `db:"id" json:"id"`
+	TenantID    uuid.UUID `db:"tenant_id" json:"tenant_id"`
+	Name        string    `db:"name" json:"name"`
+	ParentGroup string    `db:"parent_group" json:"parent_group"`
+	HSNCode     string    `db:"hsn_code" json:"hsn_code"`
+	DefaultUOM  string    `db:"default_uom" json:"default_uom"`
+	SyncedAt    time.Time `db:"synced_at" json:"synced_at"`
+}
+
+// TallyGodown represents a godown master from a customer's Tally instance.
+type TallyGodown struct {
+	ID       uuid.UUID `db:"id" json:"id"`
+	TenantID uuid.UUID `db:"tenant_id" json:"tenant_id"`
+	Name     string    `db:"name" json:"name"`
+	Parent   string    `db:"parent" json:"parent"`
+	SyncedAt time.Time `db:"synced_at" json:"synced_at"`
+}
+
+// TallyUnit represents a unit of measure from a customer's Tally instance.
+type TallyUnit struct {
+	ID         uuid.UUID `db:"id" json:"id"`
+	TenantID   uuid.UUID `db:"tenant_id" json:"tenant_id"`
+	Symbol     string    `db:"symbol" json:"symbol"`
+	FormalName string    `db:"formal_name" json:"formal_name"`
+	SyncedAt   time.Time `db:"synced_at" json:"synced_at"`
+}
+
+// TallyCostCentre represents a cost center from a customer's Tally instance.
+type TallyCostCentre struct {
+	ID       uuid.UUID `db:"id" json:"id"`
+	TenantID uuid.UUID `db:"tenant_id" json:"tenant_id"`
+	Name     string    `db:"name" json:"name"`
+	Parent   string    `db:"parent" json:"parent"`
+	SyncedAt time.Time `db:"synced_at" json:"synced_at"`
+}
+
+// SyncEvent records an individual sync operation.
+type SyncEvent struct {
+	ID                 uuid.UUID     `db:"id" json:"id"`
+	TenantID           uuid.UUID     `db:"tenant_id" json:"tenant_id"`
+	AgentID            uuid.UUID     `db:"agent_id" json:"agent_id"`
+	DocumentID         *uuid.UUID    `db:"document_id" json:"document_id,omitempty"`
+	Direction          SyncDirection `db:"direction" json:"direction"`
+	Status             SyncStatus    `db:"status" json:"status"`
+	TallyVoucherID     string        `db:"tally_voucher_id" json:"tally_voucher_id,omitempty"`
+	TallyVoucherNumber string        `db:"tally_voucher_number" json:"tally_voucher_number,omitempty"`
+	ErrorMessage       string        `db:"error_message" json:"error_message,omitempty"`
+	CreatedAt          time.Time     `db:"created_at" json:"created_at"`
+}
+
+// TallyVoucher represents a voucher read from a customer's Tally for reconciliation.
+type TallyVoucher struct {
+	ID            uuid.UUID       `db:"id" json:"id"`
+	TenantID      uuid.UUID       `db:"tenant_id" json:"tenant_id"`
+	VoucherType   string          `db:"voucher_type" json:"voucher_type"`
+	VoucherNumber string          `db:"voucher_number" json:"voucher_number"`
+	VoucherDate   *time.Time      `db:"voucher_date" json:"voucher_date"`
+	PartyName     string          `db:"party_name" json:"party_name"`
+	PartyGSTIN    string          `db:"party_gstin" json:"party_gstin"`
+	Amount        float64         `db:"amount" json:"amount"`
+	Narration     string          `db:"narration" json:"narration"`
+	LedgerEntries json.RawMessage `db:"ledger_entries" json:"ledger_entries"`
+	RemoteID      string          `db:"remote_id" json:"remote_id"`
+	TallyMasterID string          `db:"tally_master_id" json:"tally_master_id"`
+	SyncedAt      time.Time       `db:"synced_at" json:"synced_at"`
+}
+
+// VoucherDef is the smart-matched voucher definition sent to the agent for Tally import.
+type VoucherDef struct {
+	DocumentID      uuid.UUID            `json:"document_id"`
+	VoucherType     string               `json:"voucher_type"`
+	VoucherDate     string               `json:"voucher_date"`
+	PartyLedger     string               `json:"party_ledger"`
+	PurchaseLedger  string               `json:"purchase_ledger"`
+	TaxEntries      []VoucherDefTaxEntry `json:"tax_entries"`
+	InventoryItems  []VoucherDefItem     `json:"inventory_items"`
+	TotalAmount     float64              `json:"total_amount"`
+	Narration       string               `json:"narration"`
+	RemoteID        string               `json:"remote_id"`
+	MatchConfidence map[string]string    `json:"match_confidence"`
+}
+
+// VoucherDefTaxEntry is a tax ledger entry within a VoucherDef.
+type VoucherDefTaxEntry struct {
+	LedgerName string  `json:"ledger_name"`
+	Amount     float64 `json:"amount"`
+}
+
+// VoucherDefItem is an inventory item within a VoucherDef.
+type VoucherDefItem struct {
+	StockItem string  `json:"stock_item"`
+	Quantity  float64 `json:"quantity"`
+	Rate      float64 `json:"rate"`
+	Amount    float64 `json:"amount"`
+	UOM       string  `json:"uom"`
+	Godown    string  `json:"godown"`
+	HSNCode   string  `json:"hsn_code"`
+}
