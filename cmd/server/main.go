@@ -190,8 +190,20 @@ func run() error {
 	serviceAccountH := handler.NewServiceAccountHandler(serviceAccountSvc)
 	emailConfigH := handler.NewEmailConfigHandler(emailConfigSvc)
 
+	// Tally connector repos
+	tallyMasterRepo := postgres.NewTallyMasterRepo(db)
+	syncRepo := postgres.NewSyncRepo(db)
+	tallyVoucherRepo := postgres.NewTallyVoucherRepo(db)
+
+	// Voucher builder + sync service
+	voucherBuilder := service.NewVoucherBuilderService(tallyMasterRepo)
+	syncSvc := service.NewSyncService(syncRepo, tallyMasterRepo, tallyVoucherRepo, voucherBuilder)
+
+	// Sync handler
+	syncH := handler.NewSyncHandler(syncSvc)
+
 	// Setup router and start server
-	r := router.Setup(authSvc, authH, fileH, tenantH, userH, healthH, collectionH, documentH, statsH, reportH, serviceAccountH, cfg.CORS.AllowedOrigins, userRepo, serviceAccountSvc, emailConfigH)
+	r := router.Setup(authSvc, authH, fileH, tenantH, userH, healthH, collectionH, documentH, statsH, reportH, serviceAccountH, cfg.CORS.AllowedOrigins, userRepo, serviceAccountSvc, emailConfigH, syncH)
 
 	log.Printf("Server starting on %s", cfg.Server.Port)
 	if err := r.Run(cfg.Server.Port); err != nil {

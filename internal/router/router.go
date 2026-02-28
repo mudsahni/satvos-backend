@@ -29,6 +29,7 @@ func Setup(
 	userRepo port.UserRepository,
 	saSvc service.ServiceAccountService,
 	emailConfigH *handler.EmailConfigHandler,
+	syncH *handler.SyncHandler,
 ) *gin.Engine {
 	r := gin.New()
 
@@ -167,6 +168,18 @@ func Setup(
 	// Email processing config
 	admin.GET("/email-config", emailConfigH.GetConfig)
 	admin.PUT("/email-config", emailConfigH.UpdateConfig)
+
+	// Sync API — connector agent endpoints (service account auth only)
+	if syncH != nil {
+		syncGroup := protected.Group("/sync/v1")
+		syncGroup.Use(middleware.RequireRole(domain.RoleService))
+		syncGroup.POST("/register", syncH.Register)
+		syncGroup.POST("/heartbeat", syncH.Heartbeat)
+		syncGroup.POST("/masters", syncH.Masters)
+		syncGroup.GET("/outbound", syncH.Outbound)
+		syncGroup.POST("/ack", syncH.Ack)
+		syncGroup.POST("/inbound", syncH.Inbound)
+	}
 
 	return r
 }
