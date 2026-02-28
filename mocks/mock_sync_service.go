@@ -33,8 +33,8 @@ func (m *MockSyncService) SaveMasters(ctx context.Context, tenantID uuid.UUID, m
 	return args.Error(0)
 }
 
-func (m *MockSyncService) ListOutbound(ctx context.Context, tenantID uuid.UUID, cursor string, limit int) ([]service.OutboundItem, string, error) {
-	args := m.Called(ctx, tenantID, cursor, limit)
+func (m *MockSyncService) ListOutbound(ctx context.Context, tenantID, serviceAccountID uuid.UUID, cursor string, limit int) ([]service.OutboundItem, string, error) {
+	args := m.Called(ctx, tenantID, serviceAccountID, cursor, limit)
 	return args.Get(0).([]service.OutboundItem), args.String(1), args.Error(2)
 }
 

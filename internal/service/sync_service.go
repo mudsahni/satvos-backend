@@ -24,7 +24,7 @@ type MasterPayload struct {
 	StockItems  []domain.TallyStockItem  `json:"stock_items"`
 	Godowns     []domain.TallyGodown     `json:"godowns"`
 	Units       []domain.TallyUnit       `json:"units"`
-	CostCentres []domain.TallyCostCentre `json:"cost_centers"`
+	CostCentres []domain.TallyCostCentre `json:"cost_centres"` //nolint:misspell // Tally uses British spelling
 }
 
 // OutboundItem is a document queued for export to Tally, enriched with a VoucherDef.
@@ -50,7 +50,7 @@ type SyncService interface {
 	Register(ctx context.Context, tenantID, serviceAccountID uuid.UUID, version, osInfo string) (*domain.ConnectorAgent, error)
 	Heartbeat(ctx context.Context, tenantID, serviceAccountID uuid.UUID, tallyConnected bool, tallyCompany string, tallyPort int, version string, agentErrors []string) error
 	SaveMasters(ctx context.Context, tenantID uuid.UUID, masters *MasterPayload) error
-	ListOutbound(ctx context.Context, tenantID uuid.UUID, cursor string, limit int) ([]OutboundItem, string, error)
+	ListOutbound(ctx context.Context, tenantID, serviceAccountID uuid.UUID, cursor string, limit int) ([]OutboundItem, string, error)
 	AckOutbound(ctx context.Context, tenantID, serviceAccountID uuid.UUID, results []AckResult) error
 	SaveInbound(ctx context.Context, tenantID uuid.UUID, vouchers []domain.TallyVoucher) error
 }
@@ -87,7 +87,6 @@ func (s *syncService) Register(ctx context.Context, tenantID, serviceAccountID u
 	}
 
 	agent := &domain.ConnectorAgent{
-		ID:               uuid.New(),
 		TenantID:         tenantID,
 		ServiceAccountID: serviceAccountID,
 		AgentVersion:     version,
@@ -147,9 +146,14 @@ func (s *syncService) SaveMasters(ctx context.Context, tenantID uuid.UUID, maste
 	return nil
 }
 
-func (s *syncService) ListOutbound(ctx context.Context, tenantID uuid.UUID, cursor string, limit int) ([]OutboundItem, string, error) {
+func (s *syncService) ListOutbound(ctx context.Context, tenantID, serviceAccountID uuid.UUID, cursor string, limit int) ([]OutboundItem, string, error) {
 	if limit < 1 || limit > 50 {
 		limit = 50
+	}
+
+	agent, err := s.syncRepo.GetAgentByServiceAccount(ctx, tenantID, serviceAccountID)
+	if err != nil {
+		return nil, "", err
 	}
 
 	docs, nextCursor, err := s.syncRepo.ListOutboundDocuments(ctx, tenantID, cursor, limit)
@@ -171,6 +175,7 @@ func (s *syncService) ListOutbound(ctx context.Context, tenantID uuid.UUID, curs
 		event := &domain.SyncEvent{
 			ID:         eventID,
 			TenantID:   tenantID,
+			AgentID:    agent.ID,
 			DocumentID: &doc.ID,
 			Direction:  domain.SyncDirectionOutbound,
 			Status:     domain.SyncStatusPending,

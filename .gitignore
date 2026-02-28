@@ -1,5 +1,6 @@
 # Binaries
 bin/
+backfill-normalize-tags
 *.exe
 *.exe~
 *.dll

@@ -118,6 +118,8 @@ func MapDomainError(err error) (status int, code, msg string) {
 		return http.StatusForbidden, "SERVICE_ACCOUNT_REVIEW", "service accounts cannot review or be assigned documents"
 	case errors.Is(err, domain.ErrServiceAccountNotFound):
 		return http.StatusNotFound, "SERVICE_ACCOUNT_NOT_FOUND", "service account not found"
+	case errors.Is(err, domain.ErrAgentNotFound):
+		return http.StatusNotFound, "AGENT_NOT_FOUND", "connector agent not found"
 	case errors.Is(err, domain.ErrAPIKeyInvalid):
 		return http.StatusUnauthorized, "INVALID_API_KEY", "invalid API key"
 	case errors.Is(err, domain.ErrAPIKeyRevoked):

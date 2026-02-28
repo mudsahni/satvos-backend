@@ -200,11 +200,11 @@ func TestSyncHandler_Outbound_Success(t *testing.T) {
 		},
 	}
 
-	mockSvc.On("ListOutbound", mock.Anything, tenantID, "", 50).Return(items, "next-abc", nil)
+	mockSvc.On("ListOutbound", mock.Anything, tenantID, userID, "", 50).Return(items, "next-abc", nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request, _ = http.NewRequest(http.MethodGet, "/sync/v1/outbound", http.NoBody)
+	c.Request, _ = http.NewRequest(http.MethodPost, "/sync/v1/outbound", http.NoBody)
 	setAuthContext(c, tenantID, userID, "service")
 
 	h.Outbound(c)

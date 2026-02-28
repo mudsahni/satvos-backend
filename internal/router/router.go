@@ -176,7 +176,7 @@ func Setup(
 		syncGroup.POST("/register", syncH.Register)
 		syncGroup.POST("/heartbeat", syncH.Heartbeat)
 		syncGroup.POST("/masters", syncH.Masters)
-		syncGroup.GET("/outbound", syncH.Outbound)
+		syncGroup.POST("/outbound", syncH.Outbound)
 		syncGroup.POST("/ack", syncH.Ack)
 		syncGroup.POST("/inbound", syncH.Inbound)
 	}

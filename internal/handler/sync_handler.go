@@ -93,9 +93,9 @@ func (h *SyncHandler) Masters(c *gin.Context) {
 	RespondOK(c, gin.H{"message": "masters saved"})
 }
 
-// Outbound handles GET /sync/v1/outbound
+// Outbound handles POST /sync/v1/outbound
 func (h *SyncHandler) Outbound(c *gin.Context) {
-	tenantID, _, _, ok := extractAuthContext(c)
+	tenantID, userID, _, ok := extractAuthContext(c)
 	if !ok {
 		return
 	}
@@ -106,7 +106,7 @@ func (h *SyncHandler) Outbound(c *gin.Context) {
 		limit = 50
 	}
 
-	items, nextCursor, err := h.syncSvc.ListOutbound(c.Request.Context(), tenantID, cursor, limit)
+	items, nextCursor, err := h.syncSvc.ListOutbound(c.Request.Context(), tenantID, userID, cursor, limit)
 	if err != nil {
 		HandleError(c, err)
 		return
