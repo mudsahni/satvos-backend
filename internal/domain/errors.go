@@ -40,4 +40,6 @@ var (
 	ErrInvitationAlreadyAccepted = errors.New("invitation has already been accepted")
 	ErrInvalidAllowedSender      = errors.New("invalid allowed sender entry")
 	ErrAlreadyExists             = errors.New("resource already exists")
+	ErrAgentNotFound             = errors.New("connector agent not found")
+	ErrAgentAlreadyExists        = errors.New("connector agent already registered for this service account")
 )

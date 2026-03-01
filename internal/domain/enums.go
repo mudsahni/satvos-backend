@@ -247,19 +247,19 @@ const (
 type AuditAction string
 
 const (
-	AuditDocumentCreated          AuditAction = "document.created"
-	AuditDocumentParseCompleted   AuditAction = "document.parse_completed"
-	AuditDocumentParseFailed      AuditAction = "document.parse_failed"
-	AuditDocumentParseQueued      AuditAction = "document.parse_queued"
-	AuditDocumentRetry            AuditAction = "document.retry"
-	AuditDocumentReview           AuditAction = "document.review"
-	AuditDocumentEditStructured   AuditAction = "document.edit_structured_data"
-	AuditDocumentValidate              AuditAction = "document.validate"
-	AuditDocumentValidationCompleted   AuditAction = "document.validation_completed"
-	AuditDocumentTagsAdded        AuditAction = "document.tags_added"
-	AuditDocumentTagDeleted       AuditAction = "document.tag_deleted"
-	AuditDocumentDeleted          AuditAction = "document.deleted"
-	AuditDocumentAssigned         AuditAction = "document.assigned"
+	AuditDocumentCreated             AuditAction = "document.created"
+	AuditDocumentParseCompleted      AuditAction = "document.parse_completed"
+	AuditDocumentParseFailed         AuditAction = "document.parse_failed"
+	AuditDocumentParseQueued         AuditAction = "document.parse_queued"
+	AuditDocumentRetry               AuditAction = "document.retry"
+	AuditDocumentReview              AuditAction = "document.review"
+	AuditDocumentEditStructured      AuditAction = "document.edit_structured_data"
+	AuditDocumentValidate            AuditAction = "document.validate"
+	AuditDocumentValidationCompleted AuditAction = "document.validation_completed"
+	AuditDocumentTagsAdded           AuditAction = "document.tags_added"
+	AuditDocumentTagDeleted          AuditAction = "document.tag_deleted"
+	AuditDocumentDeleted             AuditAction = "document.deleted"
+	AuditDocumentAssigned            AuditAction = "document.assigned"
 )
 
 // FileStatus represents the lifecycle of an uploaded file.
@@ -271,3 +271,57 @@ const (
 	FileStatusFailed   FileStatus = "failed"
 	FileStatusDeleted  FileStatus = "deleted"
 )
+
+// AgentStatus represents the lifecycle status of a connector agent.
+type AgentStatus string
+
+const (
+	AgentStatusRegistered   AgentStatus = "registered"
+	AgentStatusOnline       AgentStatus = "online"
+	AgentStatusOffline      AgentStatus = "offline"
+	AgentStatusDisconnected AgentStatus = "disconnected"
+)
+
+// ValidAgentStatuses maps valid agent status strings for validation.
+var ValidAgentStatuses = map[AgentStatus]bool{
+	AgentStatusRegistered:   true,
+	AgentStatusOnline:       true,
+	AgentStatusOffline:      true,
+	AgentStatusDisconnected: true,
+}
+
+// DocumentSyncStatus represents the Tally sync status of a document.
+type DocumentSyncStatus string
+
+const (
+	DocumentSyncStatusNone    DocumentSyncStatus = "not_synced"
+	DocumentSyncStatusPending DocumentSyncStatus = "pending"
+	DocumentSyncStatusSynced  DocumentSyncStatus = "synced"
+	DocumentSyncStatusFailed  DocumentSyncStatus = "failed"
+)
+
+// SyncDirection indicates whether a sync event is agent-to-cloud or cloud-to-agent.
+type SyncDirection string
+
+const (
+	SyncDirectionInbound  SyncDirection = "inbound"
+	SyncDirectionOutbound SyncDirection = "outbound"
+)
+
+// SyncStatus represents the outcome of a sync event.
+type SyncStatus string
+
+const (
+	SyncStatusPending SyncStatus = "pending"
+	SyncStatusSuccess SyncStatus = "success"
+	SyncStatusFailed  SyncStatus = "failed"
+	SyncStatusSkipped SyncStatus = "skipped"
+)
+
+// ValidSyncStatuses maps valid sync status strings for validation.
+var ValidSyncStatuses = map[SyncStatus]bool{
+	SyncStatusPending: true,
+	SyncStatusSuccess: true,
+	SyncStatusFailed:  true,
+	SyncStatusSkipped: true,
+}

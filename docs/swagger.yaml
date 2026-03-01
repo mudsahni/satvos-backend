@@ -160,6 +160,8 @@ definitions:
         type: string
       structured_data:
         type: object
+      sync_status:
+        $ref: '#/definitions/domain.DocumentSyncStatus'
       tenant_id:
         type: string
       updated_at:
@@ -169,6 +171,18 @@ definitions:
       validation_status:
         $ref: '#/definitions/domain.ValidationStatus'
     type: object
+  domain.DocumentSyncStatus:
+    enum:
+    - not_synced
+    - pending
+    - synced
+    - failed
+    type: string
+    x-enum-varnames:
+    - DocumentSyncStatusNone
+    - DocumentSyncStatusPending
+    - DocumentSyncStatusSynced
+    - DocumentSyncStatusFailed
   domain.DocumentTag:
     properties:
       created_at:

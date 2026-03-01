@@ -32,7 +32,9 @@
       "Bash(make test-unit:*)",
       "Bash(python -m pytest:*)",
       "Bash(.venv/bin/python -m pytest tests/test_tenant_config.py -v)",
-      "Bash(.venv/bin/python -m pytest:*)"
+      "Bash(.venv/bin/python -m pytest:*)",
+      "Bash(test -f /home/muditsahni/Documents/Projects/satvos-tally-connector/CLAUDE.md && echo \"CLAUDE.md exists\" || echo \"No CLAUDE.md\")",
+      "Bash(make build-windows 2>&1)"
     ]
   }
 }

@@ -177,6 +177,15 @@ func run() error {
 	defer queueStop()
 	go queueWorker.Start(queueCtx)
 
+	// Tally connector repos
+	tallyMasterRepo := postgres.NewTallyMasterRepo(db)
+	syncRepo := postgres.NewSyncRepo(db)
+	tallyVoucherRepo := postgres.NewTallyVoucherRepo(db)
+
+	// Voucher builder + sync service
+	voucherBuilder := service.NewVoucherBuilderService(tallyMasterRepo)
+	syncSvc := service.NewSyncService(syncRepo, tallyMasterRepo, tallyVoucherRepo, voucherBuilder)
+
 	// Initialize handlers
 	authH := handler.NewAuthHandler(authSvc, registrationSvc, passwordResetSvc, socialAuthSvc, invitationSvc)
 	fileH := handler.NewFileHandler(fileSvc, collectionSvc)
@@ -184,14 +193,16 @@ func run() error {
 	userH := handler.NewUserHandler(userSvc, invitationSvc)
 	healthH := handler.NewHealthHandler(db)
 	collectionH := handler.NewCollectionHandler(collectionSvc, documentSvc)
-	documentH := handler.NewDocumentHandler(documentSvc, auditRepo)
+	documentH := handler.NewDocumentHandler(documentSvc, auditRepo, syncRepo, voucherBuilder)
 	statsH := handler.NewStatsHandler(statsSvc)
 	reportH := handler.NewReportHandler(reportSvc)
 	serviceAccountH := handler.NewServiceAccountHandler(serviceAccountSvc)
 	emailConfigH := handler.NewEmailConfigHandler(emailConfigSvc)
+	syncH := handler.NewSyncHandler(syncSvc)
+	connectorH := handler.NewConnectorHandler(syncRepo, tallyMasterRepo, tallyVoucherRepo, s3Client, cfg.S3.Bucket)
 
 	// Setup router and start server
-	r := router.Setup(authSvc, authH, fileH, tenantH, userH, healthH, collectionH, documentH, statsH, reportH, serviceAccountH, cfg.CORS.AllowedOrigins, userRepo, serviceAccountSvc, emailConfigH)
+	r := router.Setup(authSvc, authH, fileH, tenantH, userH, healthH, collectionH, documentH, statsH, reportH, serviceAccountH, cfg.CORS.AllowedOrigins, userRepo, serviceAccountSvc, emailConfigH, syncH, connectorH)
 
 	log.Printf("Server starting on %s", cfg.Server.Port)
 	if err := r.Run(cfg.Server.Port); err != nil {

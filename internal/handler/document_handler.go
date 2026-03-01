@@ -30,11 +30,23 @@ var allowedFacetKeys = map[string]bool{
 type DocumentHandler struct {
 	documentService service.DocumentService
 	auditRepo       port.DocumentAuditRepository
+	syncRepo        port.SyncRepository           // nil-safe
+	voucherBuilder  service.VoucherBuilderService // nil-safe
 }
 
 // NewDocumentHandler creates a new DocumentHandler.
-func NewDocumentHandler(documentService service.DocumentService, auditRepo port.DocumentAuditRepository) *DocumentHandler {
-	return &DocumentHandler{documentService: documentService, auditRepo: auditRepo}
+func NewDocumentHandler(
+	documentService service.DocumentService,
+	auditRepo port.DocumentAuditRepository,
+	syncRepo port.SyncRepository,
+	voucherBuilder service.VoucherBuilderService,
+) *DocumentHandler {
+	return &DocumentHandler{
+		documentService: documentService,
+		auditRepo:       auditRepo,
+		syncRepo:        syncRepo,
+		voucherBuilder:  voucherBuilder,
+	}
 }
 
 // Create handles POST /api/v1/documents
@@ -790,4 +802,72 @@ func (h *DocumentHandler) ListAudit(c *gin.Context) {
 	}
 
 	RespondPaginated(c, entries, PagMeta{Total: total, Offset: offset, Limit: limit})
+}
+
+// ListSyncEvents handles GET /api/v1/documents/:id/sync-events
+func (h *DocumentHandler) ListSyncEvents(c *gin.Context) {
+	tenantID, err := middleware.GetTenantID(c)
+	if err != nil {
+		RespondError(c, http.StatusUnauthorized, "UNAUTHORIZED", "missing tenant context")
+		return
+	}
+
+	docID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		RespondError(c, http.StatusBadRequest, "INVALID_ID", "invalid document ID")
+		return
+	}
+
+	if h.syncRepo == nil {
+		RespondError(c, http.StatusNotFound, "NOT_AVAILABLE", "sync events not available")
+		return
+	}
+
+	offset, limit := parsePagination(c)
+
+	events, total, err := h.syncRepo.ListSyncEventsByDocument(c.Request.Context(), tenantID, docID, offset, limit)
+	if err != nil {
+		HandleError(c, err)
+		return
+	}
+
+	RespondPaginated(c, events, PagMeta{Total: total, Offset: offset, Limit: limit})
+}
+
+// VoucherPreview handles GET /api/v1/documents/:id/voucher-preview
+func (h *DocumentHandler) VoucherPreview(c *gin.Context) {
+	tenantID, userID, role, ok := extractAuthContext(c)
+	if !ok {
+		return
+	}
+
+	docID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		RespondError(c, http.StatusBadRequest, "INVALID_ID", "invalid document ID")
+		return
+	}
+
+	if h.voucherBuilder == nil {
+		RespondError(c, http.StatusNotFound, "NOT_AVAILABLE", "voucher preview not available")
+		return
+	}
+
+	doc, err := h.documentService.GetByID(c.Request.Context(), tenantID, docID, userID, role)
+	if err != nil {
+		HandleError(c, err)
+		return
+	}
+
+	if doc.ParsingStatus != domain.ParsingStatusCompleted {
+		RespondError(c, http.StatusBadRequest, "INVALID_REQUEST", "document must be parsed before voucher preview")
+		return
+	}
+
+	voucherDef, err := h.voucherBuilder.Build(c.Request.Context(), tenantID, doc)
+	if err != nil {
+		HandleError(c, err)
+		return
+	}
+
+	RespondOK(c, voucherDef)
 }
