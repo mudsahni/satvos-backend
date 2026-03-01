@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-SATVOS is a multi-tenant GST document processing service in Go (hexagonal architecture). JWT auth, 6-tier RBAC (admin/manager/member/viewer/free/service), AWS S3 storage, LLM-powered invoice parsing (multi-provider with dual-parse merge), 59-rule validation engine with reconciliation tiering, document tagging, document audit trail, financial reports (7 endpoints over materialized summaries), free-tier self-registration with quotas and email verification, password reset, Google social login, and API key-based service accounts for programmatic access.
+SATVOS is a multi-tenant GST document processing service in Go (hexagonal architecture). JWT auth, 6-tier RBAC (admin/manager/member/viewer/free/service), AWS S3 storage, LLM-powered invoice parsing (multi-provider with dual-parse merge), 59-rule validation engine with reconciliation tiering, document tagging, document audit trail, financial reports (7 endpoints over materialized summaries), free-tier self-registration with quotas and email verification, password reset, Google social login, API key-based service accounts for programmatic access, and Tally ERP connector (on-premise agent sync protocol + admin-facing read endpoints for masters/vouchers/sync status).
 
 ## Key Commands
 
@@ -31,16 +31,20 @@ cmd/backfill/main.go         Backfill document_summaries for existing parsed doc
 internal/
   config/config.go           Loads env vars (SATVOS_ prefix) via viper
   domain/
-    models.go                Tenant, User, FileMeta, Collection, Document, DocumentTag, DocumentValidationRule, DocumentAuditEntry, DocumentSummary, report row types
+    models.go                Tenant, User, FileMeta, Collection, Document, DocumentTag, DocumentValidationRule, DocumentAuditEntry, DocumentSummary, report row types,
+                             ConnectorAgent, SyncEvent, TallyLedger, TallyStockItem, TallyGodown, TallyUnit, TallyCostCentre, TallyVoucher, VoucherDef
     enums.go                 All enums: FileType, UserRole, FileStatus, CollectionPermission, ParsingStatus,
-                             ReviewStatus, ValidationStatus, ReconciliationStatus, ParseMode, AuthProvider, AuditAction, etc.
+                             ReviewStatus, ValidationStatus, ReconciliationStatus, DocumentSyncStatus, ParseMode, AuthProvider, AuditAction,
+                             AgentStatus, SyncDirection, SyncStatus, etc.
     errors.go                Sentinel errors (ErrNotFound, ErrForbidden, ErrQuotaExceeded, etc.)
   handler/
     auth_handler.go          login, refresh, register, verify-email, resend-verification, forgot/reset-password, social-login, accept-invitation
     service_account_handler.go  CRUD /service-accounts, rotate-key, revoke, permissions. GET list/detail open to all paid roles; write operations admin-only
     file_handler.go          upload, list, get, delete (free/service: own files only)
     collection_handler.go    CRUD, batch upload, permissions, CSV export, Tally XML export
-    document_handler.go      CRUD, retry, review, assignment, review-queue, validation, tags, search, structured-data edit, audit trail
+    document_handler.go      CRUD, retry, review, assignment, review-queue, validation, tags, search, structured-data edit, audit trail, sync-events, voucher-preview
+    connector_handler.go     Admin-only: connectors list, tally masters (ledgers, stock-items, godowns, units, cost-centres), tally vouchers
+    sync_handler.go          Agent-facing sync protocol: register, heartbeat, fetch-documents, report-sync (service account auth)
     user_handler.go          CRUD /users, resend-invitation (admin). GET /users open to all paid roles (admin/manager/member/viewer). GET /users/:id open to any authenticated tenant user
     tenant_handler.go        CRUD /admin/tenants
     report_handler.go        7 report endpoints under /reports (sellers, buyers, party-ledger, financial/tax/hsn-summary, collections-overview)
@@ -68,6 +72,8 @@ internal/
     user_service.go          User CRUD (tenant-scoped)
     tenant_service.go        Tenant CRUD
     email_config_service.go  Email processing config CRUD, auto-create DynamoDB entry, allowed_senders validation
+    sync_service.go          SyncService interface + impl: agent registration, heartbeat, outbound doc fetch, sync reporting
+    voucher_builder_service.go VoucherBuilderService interface + impl: builds VoucherDef from Document with match_confidence
   port/
     repository.go            TenantRepo, UserRepo (CheckAndIncrementQuota, GetByProviderID, LinkProvider), FileMetaRepo interfaces
     social_auth.go           SocialTokenVerifier interface, SocialAuthClaims DTO
@@ -82,6 +88,9 @@ internal/
     hsn_repository.go        HSNRepository interface (LoadAll for in-memory cache)
     duplicate_finder.go      DuplicateInvoiceFinder interface
     email_config_repository.go TenantEmailConfigRepository interface (Get, Put, UpdateConfig) + TenantEmailConfig DTO
+    sync_repository.go       SyncRepository interface (RegisterAgent, GetAgent*, UpdateHeartbeat, CreateSyncEvent, UpdateSyncEventStatus, ListSyncEvents*, ListAgents, ListOutboundDocuments)
+    tally_master_repository.go TallyMasterRepository interface (UpsertLedgers/StockItems/Godowns/Units/CostCentres, List*, ListLedgersPaginated, ListStockItemsPaginated)
+    tally_voucher_repository.go TallyVoucherRepository interface (Upsert, GetByID, ListByTenantFiltered)
     storage.go               ObjectStorage interface (Upload, Download, Delete, GetPresignedURL)
   repository/postgres/       SQL implementations for all port interfaces
   repository/dynamodb/
@@ -120,10 +129,11 @@ internal/
   mocks/                     Hand-written mocks for testing
 
 tests/unit/                  Unit tests for all packages
-db/migrations/               20 SQL migrations (tenants → users → files → collections → documents
+db/migrations/               28 SQL migrations (tenants → users → files → collections → documents
                              → validation → reconciliation → multi-parser → tags → queue → hsn
                              → free-tier → email-verification → password-reset → social-auth → audit-log
-                             → review-assignment → document-summaries)
+                             → review-assignment → document-summaries → service-accounts → email-config
+                             → connector-agents → sync-events → tally-masters → document-sync-status)
 ```
 
 ## Data Flow
@@ -230,6 +240,24 @@ The `logic.invoice.duplicate` validator uses three match tiers:
 - **DynamoDB adapter**: `ConditionExpression: "attribute_exists(tenant_slug)"` on `UpdateConfig` prevents phantom item creation
 - **Files**: Port in `port/email_config_repository.go`, adapter in `repository/dynamodb/email_config_repo.go`, service in `service/email_config_service.go`, handler in `handler/email_config_handler.go`
 
+## Tally Connector
+
+- **Purpose**: Two-way sync between SATVOS and Tally ERP via an on-premise desktop agent. Agent runs on user's machine alongside Tally, communicates with SATVOS backend over HTTPS
+- **Agent sync protocol**: 4 endpoints under `/api/v1/sync/v1/` (service account auth, `RoleService`): `POST /register`, `POST /heartbeat`, `GET /documents` (outbound cursor-paginated), `POST /sync-events` (report results)
+- **Admin-facing endpoints**: 11 endpoints for frontend monitoring:
+  - `GET /admin/connector-download` — presigned S3 download URL for connector binary (5 min TTL)
+  - `GET /admin/connectors` — list connector agents (unpaginated)
+  - `GET /admin/tally-masters/{ledgers,stock-items,godowns,units,cost-centres}` — browse synced Tally masters (ledgers/stock-items paginated with filters; others unpaginated)
+  - `GET /admin/tally-vouchers` — list inbound vouchers (paginated, filterable by voucher_type, party_gstin, date range)
+  - `GET /admin/tally-vouchers/:id` — get single voucher detail
+  - `GET /documents/:id/sync-events` — per-document sync history (paginated, any authed user)
+  - `GET /documents/:id/voucher-preview` — preview VoucherDef with match_confidence (any authed user, requires parsed doc)
+- **Document sync_status**: Materialized `DocumentSyncStatus` field on Document (`not_synced`|`pending`|`synced`|`failed`). Maintained non-blocking by sync repo when sync events are created/updated. Avoids N+1 queries on document list page
+- **VoucherBuilderService**: Converts a parsed Document into a `VoucherDef` with `MatchConfidence` map (party_ledger matching against synced Tally masters)
+- **ConnectorHandler nil-safe**: Same pattern as EmailConfigHandler — if any repo is nil, returns 404 `"NOT_AVAILABLE"`
+- **DB tables**: `connector_agents`, `sync_events`, `tally_ledgers`, `tally_stock_items`, `tally_godowns`, `tally_units`, `tally_cost_centres`, `tally_vouchers`
+- **Migrations**: 000026 (connector_agents + sync_events), 000027 (tally_masters + tally_vouchers), 000028 (document sync_status with backfill)
+
 ## Key Conventions
 
 - **Env config**: All `SATVOS_` prefixed. See `internal/config/config.go` for all vars and defaults
@@ -279,6 +307,7 @@ Go 1.24, Gin, PostgreSQL 16 (sqlx + pgx/v5), AWS S3 (aws-sdk-go-v2), AWS DynamoD
 - **Modifying email config**: Port in `port/email_config_repository.go`. DynamoDB adapter in `repository/dynamodb/email_config_repo.go`. Service in `service/email_config_service.go`. Handler in `handler/email_config_handler.go`. Config in `config/config.go` (`DynamoDBConfig`). Wiring in `cmd/server/main.go`. Validation in `validateAndNormalizeAllowedSenders()` in the service file
 - **Modifying audit trail**: Domain in `domain/enums.go` (`AuditAction` consts). Port in `port/document_audit_repository.go`. Repo in `repository/postgres/document_audit_repo.go`. Service helper in `document_service.go` (`audit()` method). Handler in `document_handler.go` (`ListAudit`). Add new actions: add const to `domain/enums.go`, add `s.audit(...)` call in service method
 - **Modifying reports**: Domain row types in `domain/models.go`. Port in `port/report_repository.go`. Repo queries in `repository/postgres/report_repo.go`. Service in `service/report_service.go`. Handler in `handler/report_handler.go`. Routes in `router/router.go` (`reports` group). Summary table in `repository/postgres/document_summary_repo.go`. Backfill CLI in `cmd/backfill/main.go`
+- **Modifying Tally connector**: Agent sync protocol in `handler/sync_handler.go` + `service/sync_service.go`. Admin-facing browse endpoints in `handler/connector_handler.go`. Ports in `port/sync_repository.go`, `port/tally_master_repository.go`, `port/tally_voucher_repository.go`. Repos in `repository/postgres/sync_repo.go`, `tally_master_repo.go`, `tally_voucher_repo.go`. VoucherBuilder in `service/voucher_builder_service.go`. Document sub-resources (sync-events, voucher-preview) in `handler/document_handler.go`. Routes in `router/router.go` (admin group + documents group). Wiring in `cmd/server/main.go`
 
 ## Gotchas
 
@@ -299,9 +328,9 @@ Go 1.24, Gin, PostgreSQL 16 (sqlx + pgx/v5), AWS S3 (aws-sdk-go-v2), AWS DynamoD
 - **Audit trail non-blocking**: `audit()` helper logs errors but never fails the parent operation. Audit repo is nil-safe (skipped when nil). No FK constraints on audit table — entries survive document/user/tenant deletion
 - **`NewCollectionService` takes 6 params**: `(collectionRepo, collectionPermissionRepo, collectionFileRepo, fileService, userRepo, saPermRepo)` — saPermRepo is optional (nil-safe) for SA collection access
 - **`NewTenantService` takes 2 params**: `(tenantRepo, serviceAccountService)` — saSvc is optional (nil-safe), triggers auto-creation of `inbound_email` SA on tenant creation
-- **`NewDocumentHandler` takes 2 params**: `(documentService, auditRepo)` — auditRepo used for direct read in `ListAudit`
+- **`NewDocumentHandler` takes 4 params**: `(documentService, auditRepo, syncRepo, voucherBuilder)` — auditRepo for `ListAudit`, syncRepo for `ListSyncEvents`, voucherBuilder for `VoucherPreview`. syncRepo and voucherBuilder are nil-safe (return 404 when nil)
 - **`NewDocumentService` takes 10 params**: `(docRepo, fileRepo, userRepo, permRepo, tagRepo, docParser, storage, validationEngine, auditRepo, summaryRepo)` — summaryRepo can be nil
-- **`router.Setup` takes 15 params**: `(authSvc, authH, fileH, tenantH, userH, healthH, collectionH, documentH, statsH, reportH, serviceAccountH, emailConfigH, corsOrigins, userRepo, saSvc)`
+- **`router.Setup` takes 16 params**: `(authSvc, authH, fileH, tenantH, userH, healthH, collectionH, documentH, statsH, reportH, serviceAccountH, emailConfigH, connectorH, corsOrigins, userRepo, saSvc)` — connectorH can be nil (routes skipped)
 - **Summary upsert non-blocking**: Same pattern as audit — `upsertSummary`/`updateSummaryStatuses` log errors but never fail the parent operation. Nil summaryRepo is safe
 - **HSN report queries JSONB directly**: The `hsn-summary` report uses `jsonb_array_elements` on `documents.structured_data` rather than the summary table, since line items aren't denormalized
 - **ReportFilters is a pointer**: `*domain.ReportFilters` (120 bytes) — gocritic hugeParam lint requires pointer passing
@@ -314,3 +343,7 @@ Go 1.24, Gin, PostgreSQL 16 (sqlx + pgx/v5), AWS S3 (aws-sdk-go-v2), AWS DynamoD
 - **`NewEmailConfigService` takes 4 params**: `(emailConfigRepo, tenantRepo, saSvc, apiBaseURL)`
 - **DynamoDB `UpdateConfig` has ConditionExpression**: `attribute_exists(tenant_slug)` prevents creating phantom items. Always call `getOrCreateEntry` first
 - **SA key rotation on auto-create**: `GetOrCreateInboundEmailKey` rotates the key if SA already exists. This breaks the Lambda for ~5 minutes until cache expires. Logged as WARNING
+- **ConnectorHandler nil-safe**: Same pattern as EmailConfigHandler — `NewConnectorHandler(nil, nil, nil)` is safe; each method checks its repo and returns 404 `"NOT_AVAILABLE"` if nil
+- **Document sync_status non-blocking**: `sync_repo.CreateSyncEvent` and `UpdateSyncEventStatus` update `documents.sync_status` via fire-and-forget `_, _ =` pattern (same as audit trail). Failed status only applied if not already synced
+- **Misspell lint on "centres"**: British spelling of "cost centres" triggers misspell lint. Suppressed with `//nolint:misspell` on handler methods, router routes, and test functions. Local variables use American spelling (`centers`)
+- **`NewConnectorHandler` takes 5 params**: `(syncRepo, masterRepo, voucherRepo, storage, s3Bucket)` — all optional (nil-safe)

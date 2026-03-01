@@ -22,7 +22,7 @@ import (
 func newDocumentHandler() (*handler.DocumentHandler, *mocks.MockDocumentService) {
 	mockSvc := new(mocks.MockDocumentService)
 	auditRepo := new(mocks.MockDocumentAuditRepo)
-	h := handler.NewDocumentHandler(mockSvc, auditRepo)
+	h := handler.NewDocumentHandler(mockSvc, auditRepo, nil, nil)
 	return h, mockSvc
 }
 
@@ -1539,7 +1539,7 @@ func TestDocumentHandler_GetValidation_PermDenied(t *testing.T) {
 func TestDocumentHandler_ListAudit_Success(t *testing.T) {
 	mockSvc := new(mocks.MockDocumentService)
 	auditRepo := new(mocks.MockDocumentAuditRepo)
-	h := handler.NewDocumentHandler(mockSvc, auditRepo)
+	h := handler.NewDocumentHandler(mockSvc, auditRepo, nil, nil)
 
 	tenantID := uuid.New()
 	userID := uuid.New()
@@ -1817,4 +1817,216 @@ func TestDocumentHandler_ReviewQueue_NoAuth(t *testing.T) {
 	h.ReviewQueue(c)
 
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+// --- ListSyncEvents ---
+
+func TestDocumentHandler_ListSyncEvents_Success(t *testing.T) {
+	mockSvc := new(mocks.MockDocumentService)
+	auditRepo := new(mocks.MockDocumentAuditRepo)
+	syncRepo := new(mocks.MockSyncRepo)
+	h := handler.NewDocumentHandler(mockSvc, auditRepo, syncRepo, nil)
+
+	tenantID := uuid.New()
+	userID := uuid.New()
+	docID := uuid.New()
+
+	events := []domain.SyncEvent{
+		{ID: uuid.New(), TenantID: tenantID, DocumentID: &docID, Direction: "outbound", Status: "success"},
+	}
+	syncRepo.On("ListSyncEventsByDocument", mock.Anything, tenantID, docID, 0, 20).Return(events, 1, nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest(http.MethodGet, "/api/v1/documents/"+docID.String()+"/sync-events", http.NoBody)
+	c.Params = gin.Params{{Key: "id", Value: docID.String()}}
+	setAuthContext(c, tenantID, userID, "admin")
+
+	h.ListSyncEvents(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp handler.APIResponse
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.NoError(t, err)
+	assert.True(t, resp.Success)
+	assert.NotNil(t, resp.Meta)
+	assert.Equal(t, 1, resp.Meta.Total)
+	syncRepo.AssertExpectations(t)
+}
+
+func TestDocumentHandler_ListSyncEvents_InvalidID(t *testing.T) {
+	mockSvc := new(mocks.MockDocumentService)
+	auditRepo := new(mocks.MockDocumentAuditRepo)
+	syncRepo := new(mocks.MockSyncRepo)
+	h := handler.NewDocumentHandler(mockSvc, auditRepo, syncRepo, nil)
+
+	tenantID := uuid.New()
+	userID := uuid.New()
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest(http.MethodGet, "/api/v1/documents/bad-id/sync-events", http.NoBody)
+	c.Params = gin.Params{{Key: "id", Value: "bad-id"}}
+	setAuthContext(c, tenantID, userID, "admin")
+
+	h.ListSyncEvents(c)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestDocumentHandler_ListSyncEvents_NilRepo(t *testing.T) {
+	mockSvc := new(mocks.MockDocumentService)
+	auditRepo := new(mocks.MockDocumentAuditRepo)
+	h := handler.NewDocumentHandler(mockSvc, auditRepo, nil, nil)
+
+	tenantID := uuid.New()
+	userID := uuid.New()
+	docID := uuid.New()
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest(http.MethodGet, "/api/v1/documents/"+docID.String()+"/sync-events", http.NoBody)
+	c.Params = gin.Params{{Key: "id", Value: docID.String()}}
+	setAuthContext(c, tenantID, userID, "admin")
+
+	h.ListSyncEvents(c)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+// --- VoucherPreview ---
+
+func TestDocumentHandler_VoucherPreview_Success(t *testing.T) {
+	mockSvc := new(mocks.MockDocumentService)
+	auditRepo := new(mocks.MockDocumentAuditRepo)
+	voucherBuilder := new(mocks.MockVoucherBuilder)
+	h := handler.NewDocumentHandler(mockSvc, auditRepo, nil, voucherBuilder)
+
+	tenantID := uuid.New()
+	userID := uuid.New()
+	docID := uuid.New()
+
+	doc := &domain.Document{
+		ID:            docID,
+		TenantID:      tenantID,
+		ParsingStatus: domain.ParsingStatusCompleted,
+	}
+	mockSvc.On("GetByID", mock.Anything, tenantID, docID, userID, domain.UserRole("admin")).Return(doc, nil)
+
+	voucherDef := &domain.VoucherDef{
+		DocumentID:      docID,
+		VoucherType:     "Purchase",
+		MatchConfidence: map[string]string{"party_ledger": "high"},
+	}
+	voucherBuilder.On("Build", mock.Anything, tenantID, doc).Return(voucherDef, nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest(http.MethodGet, "/api/v1/documents/"+docID.String()+"/voucher-preview", http.NoBody)
+	c.Params = gin.Params{{Key: "id", Value: docID.String()}}
+	setAuthContext(c, tenantID, userID, "admin")
+
+	h.VoucherPreview(c)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp handler.APIResponse
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	assert.NoError(t, err)
+	assert.True(t, resp.Success)
+	mockSvc.AssertExpectations(t)
+	voucherBuilder.AssertExpectations(t)
+}
+
+func TestDocumentHandler_VoucherPreview_DocumentNotParsed(t *testing.T) {
+	mockSvc := new(mocks.MockDocumentService)
+	auditRepo := new(mocks.MockDocumentAuditRepo)
+	voucherBuilder := new(mocks.MockVoucherBuilder)
+	h := handler.NewDocumentHandler(mockSvc, auditRepo, nil, voucherBuilder)
+
+	tenantID := uuid.New()
+	userID := uuid.New()
+	docID := uuid.New()
+
+	doc := &domain.Document{
+		ID:            docID,
+		TenantID:      tenantID,
+		ParsingStatus: domain.ParsingStatusPending,
+	}
+	mockSvc.On("GetByID", mock.Anything, tenantID, docID, userID, domain.UserRole("admin")).Return(doc, nil)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest(http.MethodGet, "/api/v1/documents/"+docID.String()+"/voucher-preview", http.NoBody)
+	c.Params = gin.Params{{Key: "id", Value: docID.String()}}
+	setAuthContext(c, tenantID, userID, "admin")
+
+	h.VoucherPreview(c)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestDocumentHandler_VoucherPreview_NotFound(t *testing.T) {
+	mockSvc := new(mocks.MockDocumentService)
+	auditRepo := new(mocks.MockDocumentAuditRepo)
+	voucherBuilder := new(mocks.MockVoucherBuilder)
+	h := handler.NewDocumentHandler(mockSvc, auditRepo, nil, voucherBuilder)
+
+	tenantID := uuid.New()
+	userID := uuid.New()
+	docID := uuid.New()
+
+	mockSvc.On("GetByID", mock.Anything, tenantID, docID, userID, domain.UserRole("admin")).Return(nil, domain.ErrDocumentNotFound)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest(http.MethodGet, "/api/v1/documents/"+docID.String()+"/voucher-preview", http.NoBody)
+	c.Params = gin.Params{{Key: "id", Value: docID.String()}}
+	setAuthContext(c, tenantID, userID, "admin")
+
+	h.VoucherPreview(c)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestDocumentHandler_VoucherPreview_NilBuilder(t *testing.T) {
+	mockSvc := new(mocks.MockDocumentService)
+	auditRepo := new(mocks.MockDocumentAuditRepo)
+	h := handler.NewDocumentHandler(mockSvc, auditRepo, nil, nil)
+
+	tenantID := uuid.New()
+	userID := uuid.New()
+	docID := uuid.New()
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest(http.MethodGet, "/api/v1/documents/"+docID.String()+"/voucher-preview", http.NoBody)
+	c.Params = gin.Params{{Key: "id", Value: docID.String()}}
+	setAuthContext(c, tenantID, userID, "admin")
+
+	h.VoucherPreview(c)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestDocumentHandler_VoucherPreview_PermissionDenied(t *testing.T) {
+	mockSvc := new(mocks.MockDocumentService)
+	auditRepo := new(mocks.MockDocumentAuditRepo)
+	voucherBuilder := new(mocks.MockVoucherBuilder)
+	h := handler.NewDocumentHandler(mockSvc, auditRepo, nil, voucherBuilder)
+
+	tenantID := uuid.New()
+	userID := uuid.New()
+	docID := uuid.New()
+
+	mockSvc.On("GetByID", mock.Anything, tenantID, docID, userID, domain.UserRole("viewer")).Return(nil, domain.ErrCollectionPermDenied)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request, _ = http.NewRequest(http.MethodGet, "/api/v1/documents/"+docID.String()+"/voucher-preview", http.NoBody)
+	c.Params = gin.Params{{Key: "id", Value: docID.String()}}
+	setAuthContext(c, tenantID, userID, "viewer")
+
+	h.VoucherPreview(c)
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
 }

@@ -98,6 +98,7 @@ type Document struct {
 	SecondaryParserModel string               `db:"secondary_parser_model" json:"secondary_parser_model"`
 	ParseAttempts        int                  `db:"parse_attempts" json:"parse_attempts"`
 	RetryAfter           *time.Time           `db:"retry_after" json:"retry_after,omitempty"`
+	SyncStatus           DocumentSyncStatus   `db:"sync_status" json:"sync_status"`
 	AssignedTo           *uuid.UUID           `db:"assigned_to" json:"assigned_to"`
 	AssignedAt           *time.Time           `db:"assigned_at" json:"assigned_at,omitempty"`
 	AssignedBy           *uuid.UUID           `db:"assigned_by" json:"assigned_by"`

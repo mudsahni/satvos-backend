@@ -86,6 +86,49 @@ func (r *tallyVoucherRepo) ListByTenant(ctx context.Context, tenantID uuid.UUID,
 	return vouchers, total, nil
 }
 
+func (r *tallyVoucherRepo) ListByTenantFiltered(ctx context.Context, tenantID uuid.UUID, voucherType, partyGSTIN string, from, to *time.Time, offset, limit int) ([]domain.TallyVoucher, int, error) {
+	where := "WHERE tenant_id = $1"
+	args := []interface{}{tenantID}
+	n := 2
+
+	if voucherType != "" {
+		where += fmt.Sprintf(" AND voucher_type = $%d", n)
+		args = append(args, voucherType)
+		n++
+	}
+	if partyGSTIN != "" {
+		where += fmt.Sprintf(" AND party_gstin = $%d", n)
+		args = append(args, partyGSTIN)
+		n++
+	}
+	if from != nil {
+		where += fmt.Sprintf(" AND voucher_date >= $%d", n)
+		args = append(args, *from)
+		n++
+	}
+	if to != nil {
+		where += fmt.Sprintf(" AND voucher_date <= $%d", n)
+		args = append(args, *to)
+		n++
+	}
+
+	var total int
+	err := r.db.GetContext(ctx, &total, "SELECT COUNT(*) FROM tally_vouchers "+where, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("counting filtered tally vouchers: %w", err)
+	}
+
+	query := fmt.Sprintf("SELECT * FROM tally_vouchers %s ORDER BY synced_at DESC LIMIT $%d OFFSET $%d", where, n, n+1)
+	args = append(args, limit, offset)
+
+	var vouchers []domain.TallyVoucher
+	err = r.db.SelectContext(ctx, &vouchers, query, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("listing filtered tally vouchers: %w", err)
+	}
+	return vouchers, total, nil
+}
+
 func (r *tallyVoucherRepo) GetByID(ctx context.Context, tenantID, voucherID uuid.UUID) (*domain.TallyVoucher, error) {
 	var voucher domain.TallyVoucher
 	err := r.db.GetContext(ctx, &voucher,

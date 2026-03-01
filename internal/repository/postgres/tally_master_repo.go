@@ -76,6 +76,44 @@ func (r *tallyMasterRepo) ListLedgers(ctx context.Context, tenantID uuid.UUID) (
 	return ledgers, nil
 }
 
+func (r *tallyMasterRepo) ListLedgersPaginated(ctx context.Context, tenantID uuid.UUID, parentGroup, taxType, search string, offset, limit int) ([]domain.TallyLedger, int, error) {
+	where := "WHERE tenant_id = $1"
+	args := []interface{}{tenantID}
+	n := 2
+
+	if parentGroup != "" {
+		where += fmt.Sprintf(" AND parent_group = $%d", n)
+		args = append(args, parentGroup)
+		n++
+	}
+	if taxType != "" {
+		where += fmt.Sprintf(" AND tax_type = $%d", n)
+		args = append(args, taxType)
+		n++
+	}
+	if search != "" {
+		where += fmt.Sprintf(" AND (name ILIKE $%d OR gstin ILIKE $%d)", n, n)
+		args = append(args, "%"+search+"%")
+		n++
+	}
+
+	var total int
+	err := r.db.GetContext(ctx, &total, "SELECT COUNT(*) FROM tally_ledgers "+where, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("counting ledgers: %w", err)
+	}
+
+	query := fmt.Sprintf("SELECT * FROM tally_ledgers %s ORDER BY name ASC LIMIT $%d OFFSET $%d", where, n, n+1)
+	args = append(args, limit, offset)
+
+	var ledgers []domain.TallyLedger
+	err = r.db.SelectContext(ctx, &ledgers, query, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("listing ledgers paginated: %w", err)
+	}
+	return ledgers, total, nil
+}
+
 func (r *tallyMasterRepo) FindLedgerByGSTIN(ctx context.Context, tenantID uuid.UUID, gstin string) (*domain.TallyLedger, error) {
 	var ledger domain.TallyLedger
 	err := r.db.GetContext(ctx, &ledger,
@@ -165,6 +203,44 @@ func (r *tallyMasterRepo) ListStockItems(ctx context.Context, tenantID uuid.UUID
 		return nil, fmt.Errorf("listing stock items: %w", err)
 	}
 	return items, nil
+}
+
+func (r *tallyMasterRepo) ListStockItemsPaginated(ctx context.Context, tenantID uuid.UUID, parentGroup, hsnCode, search string, offset, limit int) ([]domain.TallyStockItem, int, error) {
+	where := "WHERE tenant_id = $1"
+	args := []interface{}{tenantID}
+	n := 2
+
+	if parentGroup != "" {
+		where += fmt.Sprintf(" AND parent_group = $%d", n)
+		args = append(args, parentGroup)
+		n++
+	}
+	if hsnCode != "" {
+		where += fmt.Sprintf(" AND hsn_code = $%d", n)
+		args = append(args, hsnCode)
+		n++
+	}
+	if search != "" {
+		where += fmt.Sprintf(" AND name ILIKE $%d", n)
+		args = append(args, "%"+search+"%")
+		n++
+	}
+
+	var total int
+	err := r.db.GetContext(ctx, &total, "SELECT COUNT(*) FROM tally_stock_items "+where, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("counting stock items: %w", err)
+	}
+
+	query := fmt.Sprintf("SELECT * FROM tally_stock_items %s ORDER BY name ASC LIMIT $%d OFFSET $%d", where, n, n+1)
+	args = append(args, limit, offset)
+
+	var items []domain.TallyStockItem
+	err = r.db.SelectContext(ctx, &items, query, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("listing stock items paginated: %w", err)
+	}
+	return items, total, nil
 }
 
 func (r *tallyMasterRepo) FindStockItemByHSN(ctx context.Context, tenantID uuid.UUID, hsnCode string) (*domain.TallyStockItem, error) {

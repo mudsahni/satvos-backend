@@ -93,6 +93,22 @@ func (r *syncRepo) CreateSyncEvent(ctx context.Context, event *domain.SyncEvent)
 	if err != nil {
 		return fmt.Errorf("inserting sync event: %w", err)
 	}
+
+	// Update document sync_status for outbound events
+	if event.DocumentID != nil && event.Direction == domain.SyncDirectionOutbound {
+		var docSyncStatus domain.DocumentSyncStatus
+		switch event.Status {
+		case domain.SyncStatusSuccess:
+			docSyncStatus = domain.DocumentSyncStatusSynced
+		case domain.SyncStatusFailed:
+			docSyncStatus = domain.DocumentSyncStatusFailed
+		default:
+			docSyncStatus = domain.DocumentSyncStatusPending
+		}
+		_, _ = r.db.ExecContext(ctx,
+			"UPDATE documents SET sync_status = $1 WHERE id = $2",
+			docSyncStatus, *event.DocumentID)
+	}
 	return nil
 }
 
@@ -108,6 +124,30 @@ func (r *syncRepo) UpdateSyncEventStatus(ctx context.Context, eventID uuid.UUID,
 	rows, _ := result.RowsAffected()
 	if rows == 0 {
 		return domain.ErrNotFound
+	}
+
+	// Update document sync_status based on the new event status
+	var docSyncStatus domain.DocumentSyncStatus
+	switch status {
+	case domain.SyncStatusSuccess:
+		docSyncStatus = domain.DocumentSyncStatusSynced
+	case domain.SyncStatusFailed:
+		docSyncStatus = domain.DocumentSyncStatusFailed
+	default:
+		return nil
+	}
+	if docSyncStatus == domain.DocumentSyncStatusFailed {
+		// Only set failed if no success event exists for this document
+		_, _ = r.db.ExecContext(ctx, `
+			UPDATE documents SET sync_status = $1
+			WHERE id = (SELECT document_id FROM sync_events WHERE id = $2)
+				AND sync_status != 'synced'`,
+			docSyncStatus, eventID)
+	} else {
+		_, _ = r.db.ExecContext(ctx, `
+			UPDATE documents SET sync_status = $1
+			WHERE id = (SELECT document_id FROM sync_events WHERE id = $2)`,
+			docSyncStatus, eventID)
 	}
 	return nil
 }
@@ -128,6 +168,34 @@ func (r *syncRepo) ListSyncEvents(ctx context.Context, tenantID uuid.UUID, offse
 		return nil, 0, fmt.Errorf("listing sync events: %w", err)
 	}
 	return events, total, nil
+}
+
+func (r *syncRepo) ListSyncEventsByDocument(ctx context.Context, tenantID, documentID uuid.UUID, offset, limit int) ([]domain.SyncEvent, int, error) {
+	var total int
+	err := r.db.GetContext(ctx, &total,
+		"SELECT COUNT(*) FROM sync_events WHERE tenant_id = $1 AND document_id = $2", tenantID, documentID)
+	if err != nil {
+		return nil, 0, fmt.Errorf("counting sync events by document: %w", err)
+	}
+
+	var events []domain.SyncEvent
+	err = r.db.SelectContext(ctx, &events,
+		"SELECT * FROM sync_events WHERE tenant_id = $1 AND document_id = $2 ORDER BY created_at DESC LIMIT $3 OFFSET $4",
+		tenantID, documentID, limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("listing sync events by document: %w", err)
+	}
+	return events, total, nil
+}
+
+func (r *syncRepo) ListAgents(ctx context.Context, tenantID uuid.UUID) ([]domain.ConnectorAgent, error) {
+	var agents []domain.ConnectorAgent
+	err := r.db.SelectContext(ctx, &agents,
+		"SELECT * FROM connector_agents WHERE tenant_id = $1 ORDER BY registered_at DESC", tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("listing connector agents: %w", err)
+	}
+	return agents, nil
 }
 
 func (r *syncRepo) ListOutboundDocuments(ctx context.Context, tenantID uuid.UUID, cursor string, limit int) ([]domain.Document, string, error) {

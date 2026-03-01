@@ -20,6 +20,10 @@ type SyncRepository interface {
 	CreateSyncEvent(ctx context.Context, event *domain.SyncEvent) error
 	UpdateSyncEventStatus(ctx context.Context, eventID uuid.UUID, status domain.SyncStatus, tallyVoucherID, tallyVoucherNumber, errorMessage string) error
 	ListSyncEvents(ctx context.Context, tenantID uuid.UUID, offset, limit int) ([]domain.SyncEvent, int, error)
+	ListSyncEventsByDocument(ctx context.Context, tenantID, documentID uuid.UUID, offset, limit int) ([]domain.SyncEvent, int, error)
+
+	// Agents
+	ListAgents(ctx context.Context, tenantID uuid.UUID) ([]domain.ConnectorAgent, error)
 
 	// Outbound queue
 	ListOutboundDocuments(ctx context.Context, tenantID uuid.UUID, cursor string, limit int) ([]domain.Document, string, error)

@@ -13,6 +13,7 @@ type TallyMasterRepository interface {
 	// Ledgers
 	UpsertLedgers(ctx context.Context, tenantID uuid.UUID, ledgers []domain.TallyLedger) error
 	ListLedgers(ctx context.Context, tenantID uuid.UUID) ([]domain.TallyLedger, error)
+	ListLedgersPaginated(ctx context.Context, tenantID uuid.UUID, parentGroup, taxType, search string, offset, limit int) ([]domain.TallyLedger, int, error)
 	FindLedgerByGSTIN(ctx context.Context, tenantID uuid.UUID, gstin string) (*domain.TallyLedger, error)
 	FindTaxLedger(ctx context.Context, tenantID uuid.UUID, taxType string, taxRate float64) (*domain.TallyLedger, error)
 	FindPurchaseLedger(ctx context.Context, tenantID uuid.UUID) (*domain.TallyLedger, error)
@@ -20,6 +21,7 @@ type TallyMasterRepository interface {
 	// Stock items
 	UpsertStockItems(ctx context.Context, tenantID uuid.UUID, items []domain.TallyStockItem) error
 	ListStockItems(ctx context.Context, tenantID uuid.UUID) ([]domain.TallyStockItem, error)
+	ListStockItemsPaginated(ctx context.Context, tenantID uuid.UUID, parentGroup, hsnCode, search string, offset, limit int) ([]domain.TallyStockItem, int, error)
 	FindStockItemByHSN(ctx context.Context, tenantID uuid.UUID, hsnCode string) (*domain.TallyStockItem, error)
 
 	// Godowns

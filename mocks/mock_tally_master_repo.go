@@ -27,6 +27,14 @@ func (m *MockTallyMasterRepo) ListLedgers(ctx context.Context, tenantID uuid.UUI
 	return args.Get(0).([]domain.TallyLedger), args.Error(1)
 }
 
+func (m *MockTallyMasterRepo) ListLedgersPaginated(ctx context.Context, tenantID uuid.UUID, parentGroup, taxType, search string, offset, limit int) ([]domain.TallyLedger, int, error) {
+	args := m.Called(ctx, tenantID, parentGroup, taxType, search, offset, limit)
+	if args.Get(0) == nil {
+		return nil, args.Int(1), args.Error(2)
+	}
+	return args.Get(0).([]domain.TallyLedger), args.Int(1), args.Error(2)
+}
+
 func (m *MockTallyMasterRepo) FindLedgerByGSTIN(ctx context.Context, tenantID uuid.UUID, gstin string) (*domain.TallyLedger, error) {
 	args := m.Called(ctx, tenantID, gstin)
 	if args.Get(0) == nil {
@@ -62,6 +70,14 @@ func (m *MockTallyMasterRepo) ListStockItems(ctx context.Context, tenantID uuid.
 		return nil, args.Error(1)
 	}
 	return args.Get(0).([]domain.TallyStockItem), args.Error(1)
+}
+
+func (m *MockTallyMasterRepo) ListStockItemsPaginated(ctx context.Context, tenantID uuid.UUID, parentGroup, hsnCode, search string, offset, limit int) ([]domain.TallyStockItem, int, error) {
+	args := m.Called(ctx, tenantID, parentGroup, hsnCode, search, offset, limit)
+	if args.Get(0) == nil {
+		return nil, args.Int(1), args.Error(2)
+	}
+	return args.Get(0).([]domain.TallyStockItem), args.Int(1), args.Error(2)
 }
 
 func (m *MockTallyMasterRepo) FindStockItemByHSN(ctx context.Context, tenantID uuid.UUID, hsnCode string) (*domain.TallyStockItem, error) {

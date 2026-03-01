@@ -30,6 +30,7 @@ func Setup(
 	saSvc service.ServiceAccountService,
 	emailConfigH *handler.EmailConfigHandler,
 	syncH *handler.SyncHandler,
+	connectorH *handler.ConnectorHandler,
 ) *gin.Engine {
 	r := gin.New()
 
@@ -117,6 +118,8 @@ func Setup(
 	documents.POST("/:id/tags", documentH.AddTags)
 	documents.DELETE("/:id/tags/:tagId", documentH.DeleteTag)
 	documents.GET("/:id/audit", documentH.ListAudit)
+	documents.GET("/:id/sync-events", documentH.ListSyncEvents)
+	documents.GET("/:id/voucher-preview", documentH.VoucherPreview)
 	documents.DELETE("/:id", middleware.RequireRole(domain.RoleAdmin), documentH.Delete)
 
 	// Stats
@@ -168,6 +171,23 @@ func Setup(
 	// Email processing config
 	admin.GET("/email-config", emailConfigH.GetConfig)
 	admin.PUT("/email-config", emailConfigH.UpdateConfig)
+
+	// Tally connector admin endpoints
+	if connectorH != nil {
+		admin.GET("/connector-download", connectorH.DownloadConnector)
+		admin.GET("/connectors", connectorH.ListConnectors)
+
+		tallyMasters := admin.Group("/tally-masters")
+		tallyMasters.GET("/ledgers", connectorH.ListLedgers)
+		tallyMasters.GET("/stock-items", connectorH.ListStockItems)
+		tallyMasters.GET("/godowns", connectorH.ListGodowns)
+		tallyMasters.GET("/units", connectorH.ListUnits)
+		tallyMasters.GET("/cost-centres", connectorH.ListCostCentres) //nolint:misspell // API path uses British spelling
+
+		tallyVouchers := admin.Group("/tally-vouchers")
+		tallyVouchers.GET("", connectorH.ListTallyVouchers)
+		tallyVouchers.GET("/:id", connectorH.GetTallyVoucher)
+	}
 
 	// Sync API — connector agent endpoints (service account auth only)
 	if syncH != nil {

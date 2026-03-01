@@ -4463,6 +4463,9 @@ const docTemplate = `{
                 "structured_data": {
                     "type": "object"
                 },
+                "sync_status": {
+                    "$ref": "#/definitions/domain.DocumentSyncStatus"
+                },
                 "tenant_id": {
                     "type": "string"
                 },
@@ -4476,6 +4479,21 @@ const docTemplate = `{
                     "$ref": "#/definitions/domain.ValidationStatus"
                 }
             }
+        },
+        "domain.DocumentSyncStatus": {
+            "type": "string",
+            "enum": [
+                "not_synced",
+                "pending",
+                "synced",
+                "failed"
+            ],
+            "x-enum-varnames": [
+                "DocumentSyncStatusNone",
+                "DocumentSyncStatusPending",
+                "DocumentSyncStatusSynced",
+                "DocumentSyncStatusFailed"
+            ]
         },
         "domain.DocumentTag": {
             "type": "object",
