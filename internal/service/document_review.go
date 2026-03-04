@@ -143,17 +143,10 @@ func (s *documentService) EditStructuredData(ctx context.Context, input *EditStr
 		return nil, domain.ErrInvalidStructuredData
 	}
 
-	// Build all-1.0 confidence scores (human-verified data)
-	confidenceScores := buildFullConfidenceScores(&inv)
-	confidenceJSON, err := json.Marshal(confidenceScores)
-	if err != nil {
-		return nil, fmt.Errorf("marshaling confidence scores: %w", err)
-	}
-
 	// Update document fields
 	doc.StructuredData = input.StructuredData
-	doc.ConfidenceScores = confidenceJSON
-	doc.FieldProvenance = json.RawMessage(`{"source":"manual_edit"}`)
+	doc.ConfidenceScores = json.RawMessage("{}")
+	doc.FieldProvenance = json.RawMessage(`{"_source":"manual_edit"}`)
 
 	// Reset validation and reconciliation status
 	doc.ValidationStatus = domain.ValidationStatusPending
@@ -205,80 +198,6 @@ func (s *documentService) EditStructuredData(ctx context.Context, input *EditStr
 	}
 
 	return updated, nil
-}
-
-// buildFullConfidenceScores creates confidence scores with all fields set to 1.0.
-func buildFullConfidenceScores(inv *invoice.GSTInvoice) invoice.ConfidenceScores {
-	scores := invoice.ConfidenceScores{
-		Invoice: invoice.InvoiceConfidence{
-			InvoiceNumber:         1.0,
-			InvoiceDate:           1.0,
-			DueDate:               1.0,
-			InvoiceType:           1.0,
-			Currency:              1.0,
-			PlaceOfSupply:         1.0,
-			ReverseCharge:         1.0,
-			IRN:                   1.0,
-			AcknowledgementNumber: 1.0,
-			AcknowledgementDate:   1.0,
-		},
-		Seller: invoice.PartyConfidence{
-			Name:      1.0,
-			Address:   1.0,
-			GSTIN:     1.0,
-			PAN:       1.0,
-			State:     1.0,
-			StateCode: 1.0,
-		},
-		Buyer: invoice.PartyConfidence{
-			Name:      1.0,
-			Address:   1.0,
-			GSTIN:     1.0,
-			PAN:       1.0,
-			State:     1.0,
-			StateCode: 1.0,
-		},
-		Totals: invoice.TotalsConfidence{
-			Subtotal:      1.0,
-			TotalDiscount: 1.0,
-			TaxableAmount: 1.0,
-			CGST:          1.0,
-			SGST:          1.0,
-			IGST:          1.0,
-			Cess:          1.0,
-			RoundOff:      1.0,
-			Total:         1.0,
-		},
-		Payment: invoice.PaymentConfidence{
-			BankName:      1.0,
-			AccountNumber: 1.0,
-			IFSCCode:      1.0,
-			PaymentTerms:  1.0,
-		},
-	}
-
-	lineItems := make([]invoice.LineItemConfidence, len(inv.LineItems))
-	for i := range lineItems {
-		lineItems[i] = invoice.LineItemConfidence{
-			Description:   1.0,
-			HSNSACCode:    1.0,
-			Quantity:      1.0,
-			Unit:          1.0,
-			UnitPrice:     1.0,
-			Discount:      1.0,
-			TaxableAmount: 1.0,
-			CGSTRate:      1.0,
-			CGSTAmount:    1.0,
-			SGSTRate:      1.0,
-			SGSTAmount:    1.0,
-			IGSTRate:      1.0,
-			IGSTAmount:    1.0,
-			Total:         1.0,
-		}
-	}
-	scores.LineItems = lineItems
-
-	return scores
 }
 
 func (s *documentService) ValidateDocument(ctx context.Context, tenantID, docID, userID uuid.UUID, role domain.UserRole) error {

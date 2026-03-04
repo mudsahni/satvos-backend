@@ -11,21 +11,17 @@ import (
 	"satvos/internal/domain"
 )
 
+// Private aliases for the exported patterns in format_patterns.go.
 var (
-	gstinPattern = regexp.MustCompile(`^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$`)
-	panPattern   = regexp.MustCompile(`^[A-Z]{5}\d{4}[A-Z]$`)
-	ifscPattern  = regexp.MustCompile(`^[A-Z]{4}0[A-Z0-9]{6}$`)
-	hsnPattern   = regexp.MustCompile(`^\d{4,8}$`)
-	acctPattern  = regexp.MustCompile(`^\d{9,18}$`)
+	gstinPattern = GSTINPattern
+	panPattern   = PANPattern
+	ifscPattern  = IFSCPattern
+	hsnPattern   = HSNPattern
+	acctPattern  = AcctPattern
 )
 
-// Known ISO 4217 currency codes (common subset).
-var knownCurrencies = map[string]bool{
-	"INR": true, "USD": true, "EUR": true, "GBP": true, "JPY": true,
-	"AUD": true, "CAD": true, "CHF": true, "CNY": true, "SGD": true,
-	"AED": true, "SAR": true, "HKD": true, "MYR": true, "THB": true,
-	"NZD": true, "SEK": true, "NOK": true, "DKK": true, "ZAR": true,
-}
+// knownCurrencies aliases the exported KnownCurrencies map.
+var knownCurrencies = KnownCurrencies
 
 // formatValidator checks a field against a regex or format rule.
 type formatValidator struct {

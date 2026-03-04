@@ -101,11 +101,11 @@ func TestOpenAIParser_Parse_PDF_Success(t *testing.T) {
 	inv := data["invoice"].(map[string]interface{})
 	assert.Equal(t, "INV-001", inv["invoice_number"])
 
-	// Verify confidence scores
+	// Confidence scores should be empty (no longer populated)
 	var scores map[string]interface{}
 	err = json.Unmarshal(result.ConfidenceScores, &scores)
 	assert.NoError(t, err)
-	assert.NotNil(t, scores["invoice"])
+	assert.Empty(t, scores)
 }
 
 func TestOpenAIParser_Parse_Image_JPEG_Success(t *testing.T) {

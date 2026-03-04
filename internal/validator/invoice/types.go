@@ -76,7 +76,8 @@ type Payment struct {
 	PaymentTerms  string `json:"payment_terms"`
 }
 
-// ConfidenceScores mirrors the GSTInvoice structure but with float64 values.
+// Deprecated: ConfidenceScores are no longer populated by the parser.
+// Retained for backward compatibility with existing stored documents.
 type ConfidenceScores struct {
 	Invoice   InvoiceConfidence   `json:"invoice"`
 	Seller    PartyConfidence     `json:"seller"`

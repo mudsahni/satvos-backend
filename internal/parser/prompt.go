@@ -13,9 +13,7 @@ IMPORTANT INSTRUCTIONS:
 
 Return ONLY valid JSON with no markdown formatting, no code fences, no explanation — just the raw JSON object.
 
-Return two top-level keys: "data" and "confidence_scores".
-
-The "data" object must follow this schema:
+Return ONLY the JSON data object following this schema:
 {
   "invoice": {
     "invoice_number": "",
@@ -67,8 +65,6 @@ The "data" object must follow this schema:
   },
   "notes": ""
 }
-
-The "confidence_scores" object should mirror the "data" structure but with float values between 0.0 and 1.0 indicating your confidence for each extracted field. Use 0.0 for fields not found in the document.
 
 If a field is not present in the document, use empty string for text, 0 for numbers, and false for booleans.`
 }

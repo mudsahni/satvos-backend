@@ -94,30 +94,54 @@ func TestComputeFieldStatuses_ErrorOverridesWarning(t *testing.T) {
 	assert.Len(t, statuses["seller.gstin"].Messages, 2)
 }
 
-func TestComputeFieldStatuses_ConfidenceLow(t *testing.T) {
-	confidenceMap := map[string]float64{
-		"seller.pan": 0.3,
+func TestComputeFieldStatuses_TrustLow(t *testing.T) {
+	trustMap := map[string]*validator.FieldTrustEntry{
+		"seller.pan": {Trust: 0.3, Reasons: []string{"dual_parse_disagree"}},
 	}
 
-	statuses := validator.ComputeFieldStatuses(nil, nil, confidenceMap)
+	statuses := validator.ComputeFieldStatuses(nil, nil, trustMap)
 
 	assert.Equal(t, domain.FieldStatusUnsure, statuses["seller.pan"].Status)
-	assert.Empty(t, statuses["seller.pan"].Messages)
+	assert.Equal(t, 0.3, statuses["seller.pan"].Trust)
 }
 
-func TestComputeFieldStatuses_ConfidenceHigh(t *testing.T) {
-	confidenceMap := map[string]float64{
-		"seller.name": 0.95,
+func TestComputeFieldStatuses_TrustHigh(t *testing.T) {
+	trustMap := map[string]*validator.FieldTrustEntry{
+		"seller.name": {Trust: 0.85, Reasons: []string{"dual_parse_agree"}},
 	}
 
-	statuses := validator.ComputeFieldStatuses(nil, nil, confidenceMap)
+	statuses := validator.ComputeFieldStatuses(nil, nil, trustMap)
 
 	assert.Equal(t, domain.FieldStatusValid, statuses["seller.name"].Status)
-	assert.Empty(t, statuses["seller.name"].Messages)
+	assert.Equal(t, 0.85, statuses["seller.name"].Trust)
 }
 
 func TestComputeFieldStatuses_EmptyInput(t *testing.T) {
 	statuses := validator.ComputeFieldStatuses(nil, nil, nil)
 
 	assert.Empty(t, statuses)
+}
+
+func TestComputeFieldStatuses_TrustPopulatedOnValidatedField(t *testing.T) {
+	ruleID := uuid.New()
+	rules := map[string]*domain.DocumentValidationRule{
+		ruleID.String(): {
+			ID:       ruleID,
+			Severity: domain.ValidationSeverityError,
+		},
+	}
+
+	results := []validator.ValidationResultEntry{
+		{RuleID: ruleID, Passed: true, FieldPath: "seller.gstin", Message: "GSTIN valid"},
+	}
+
+	trustMap := map[string]*validator.FieldTrustEntry{
+		"seller.gstin": {Trust: 0.95, Reasons: []string{"dual_parse_agree", "validation_passed", "format_match"}},
+	}
+
+	statuses := validator.ComputeFieldStatuses(results, rules, trustMap)
+
+	assert.Equal(t, domain.FieldStatusValid, statuses["seller.gstin"].Status)
+	assert.Equal(t, 0.95, statuses["seller.gstin"].Trust)
+	assert.Contains(t, statuses["seller.gstin"].Reasons, "dual_parse_agree")
 }

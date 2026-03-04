@@ -95,11 +95,11 @@ func TestClaudeParser_Parse_PDF_Success(t *testing.T) {
 	invoice := data["invoice"].(map[string]interface{})
 	assert.Equal(t, "INV-001", invoice["invoice_number"])
 
-	// Verify confidence scores
+	// Confidence scores should be empty (no longer populated)
 	var scores map[string]interface{}
 	err = json.Unmarshal(result.ConfidenceScores, &scores)
 	assert.NoError(t, err)
-	assert.NotNil(t, scores["invoice"])
+	assert.Empty(t, scores)
 }
 
 func TestClaudeParser_Parse_Image_Success(t *testing.T) {

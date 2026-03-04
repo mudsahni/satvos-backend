@@ -300,9 +300,9 @@ func TestHSN_Rate(t *testing.T) {
 // --- Verify HSN validators don't affect existing counts ---
 
 func TestHSNValidators_SeparateFromBuiltin(t *testing.T) {
-	// AllBuiltinValidators() should still return exactly 56
+	// AllBuiltinValidators() should still return exactly 60
 	all := invoice.AllBuiltinValidators()
-	assert.Len(t, all, 56, "HSN validators should not be included in AllBuiltinValidators()")
+	assert.Len(t, all, 60, "HSN validators should not be included in AllBuiltinValidators()")
 }
 
 func TestHSNValidators_UniqueKeys(t *testing.T) {
