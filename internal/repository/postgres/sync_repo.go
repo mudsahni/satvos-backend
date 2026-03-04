@@ -82,7 +82,9 @@ func (r *syncRepo) UpdateHeartbeat(ctx context.Context, agentID uuid.UUID, statu
 }
 
 func (r *syncRepo) CreateSyncEvent(ctx context.Context, event *domain.SyncEvent) error {
-	event.ID = uuid.New()
+	if event.ID == uuid.Nil {
+		event.ID = uuid.New()
+	}
 	event.CreatedAt = time.Now().UTC()
 	_, err := r.db.NamedExecContext(ctx, `
 		INSERT INTO sync_events (id, tenant_id, agent_id, document_id, direction, status,
