@@ -834,6 +834,147 @@ func (h *DocumentHandler) ListSyncEvents(c *gin.Context) {
 	RespondPaginated(c, events, PagMeta{Total: total, Offset: offset, Limit: limit})
 }
 
+// ListSyncQueue handles GET /api/v1/documents/sync-queue
+func (h *DocumentHandler) ListSyncQueue(c *gin.Context) {
+	tenantID, userID, role, ok := extractAuthContext(c)
+	if !ok {
+		return
+	}
+
+	offset, limit := parsePagination(c)
+
+	filters := &port.SyncReviewFilters{
+		Status: domain.SyncReviewPending,
+	}
+	if v := c.Query("status"); v != "" {
+		s := domain.SyncReviewStatus(v)
+		if !domain.ValidSyncReviewStatuses[s] {
+			RespondError(c, http.StatusBadRequest, "INVALID_REQUEST", "invalid sync review status")
+			return
+		}
+		filters.Status = s
+	}
+	if v := c.Query("collection_id"); v != "" {
+		parsed, err := uuid.Parse(v)
+		if err != nil {
+			RespondError(c, http.StatusBadRequest, "INVALID_ID", "invalid collection_id")
+			return
+		}
+		filters.CollectionID = &parsed
+	}
+
+	docs, total, err := h.documentService.ListSyncReviewQueue(c.Request.Context(), tenantID, userID, role, filters, offset, limit)
+	if err != nil {
+		HandleError(c, err)
+		return
+	}
+
+	RespondPaginated(c, docs, PagMeta{Total: total, Offset: offset, Limit: limit})
+}
+
+// ApproveSyncBatch handles POST /api/v1/documents/sync-queue/approve
+func (h *DocumentHandler) ApproveSyncBatch(c *gin.Context) {
+	tenantID, userID, role, ok := extractAuthContext(c)
+	if !ok {
+		return
+	}
+
+	var req struct {
+		DocumentIDs []uuid.UUID `json:"document_ids" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		RespondError(c, http.StatusBadRequest, "INVALID_REQUEST", "document_ids array is required")
+		return
+	}
+	if len(req.DocumentIDs) == 0 {
+		RespondError(c, http.StatusBadRequest, "INVALID_REQUEST", "document_ids cannot be empty")
+		return
+	}
+
+	if err := h.documentService.ApproveSyncBatch(c.Request.Context(), tenantID, userID, role, req.DocumentIDs); err != nil {
+		HandleError(c, err)
+		return
+	}
+
+	RespondOK(c, gin.H{"message": fmt.Sprintf("%d documents approved for sync", len(req.DocumentIDs))})
+}
+
+// RejectSyncBatch handles POST /api/v1/documents/sync-queue/reject
+func (h *DocumentHandler) RejectSyncBatch(c *gin.Context) {
+	tenantID, userID, role, ok := extractAuthContext(c)
+	if !ok {
+		return
+	}
+
+	var req struct {
+		DocumentIDs []uuid.UUID `json:"document_ids" binding:"required"`
+		Reason      string      `json:"reason"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		RespondError(c, http.StatusBadRequest, "INVALID_REQUEST", "document_ids array is required")
+		return
+	}
+	if len(req.DocumentIDs) == 0 {
+		RespondError(c, http.StatusBadRequest, "INVALID_REQUEST", "document_ids cannot be empty")
+		return
+	}
+
+	if err := h.documentService.RejectSyncBatch(c.Request.Context(), tenantID, userID, role, req.DocumentIDs, req.Reason); err != nil {
+		HandleError(c, err)
+		return
+	}
+
+	RespondOK(c, gin.H{"message": fmt.Sprintf("%d documents rejected for sync", len(req.DocumentIDs))})
+}
+
+// UpdateVoucherOverrides handles PUT /api/v1/documents/:id/voucher-overrides
+func (h *DocumentHandler) UpdateVoucherOverrides(c *gin.Context) {
+	tenantID, userID, role, ok := extractAuthContext(c)
+	if !ok {
+		return
+	}
+
+	docID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		RespondError(c, http.StatusBadRequest, "INVALID_ID", "invalid document ID")
+		return
+	}
+
+	var req domain.VoucherOverrides
+	if err := c.ShouldBindJSON(&req); err != nil {
+		RespondError(c, http.StatusBadRequest, "INVALID_REQUEST", "invalid voucher overrides")
+		return
+	}
+
+	if err := h.documentService.UpdateVoucherOverrides(c.Request.Context(), tenantID, userID, role, docID, &req); err != nil {
+		HandleError(c, err)
+		return
+	}
+
+	RespondOK(c, gin.H{"message": "voucher overrides updated"})
+}
+
+// ApproveCollectionSync handles POST /api/v1/collections/:id/sync-queue/approve
+func (h *DocumentHandler) ApproveCollectionSync(c *gin.Context) {
+	tenantID, userID, role, ok := extractAuthContext(c)
+	if !ok {
+		return
+	}
+
+	collectionID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		RespondError(c, http.StatusBadRequest, "INVALID_ID", "invalid collection ID")
+		return
+	}
+
+	if err := h.documentService.ApproveCollectionSync(c.Request.Context(), tenantID, userID, role, collectionID); err != nil {
+		HandleError(c, err)
+		return
+	}
+
+	RespondOK(c, gin.H{"message": "all pending documents in collection approved for sync"})
+}
+
 // VoucherPreview handles GET /api/v1/documents/:id/voucher-preview
 func (h *DocumentHandler) VoucherPreview(c *gin.Context) {
 	tenantID, userID, role, ok := extractAuthContext(c)
@@ -863,7 +1004,16 @@ func (h *DocumentHandler) VoucherPreview(c *gin.Context) {
 		return
 	}
 
-	voucherDef, err := h.voucherBuilder.Build(c.Request.Context(), tenantID, doc)
+	// Apply overrides if present on the document
+	var overrides *domain.VoucherOverrides
+	if doc.VoucherOverrides != nil && len(*doc.VoucherOverrides) > 0 {
+		overrides = &domain.VoucherOverrides{}
+		if jsonErr := json.Unmarshal(*doc.VoucherOverrides, overrides); jsonErr != nil {
+			overrides = nil
+		}
+	}
+
+	voucherDef, err := h.voucherBuilder.BuildWithOverrides(c.Request.Context(), tenantID, doc, overrides)
 	if err != nil {
 		HandleError(c, err)
 		return

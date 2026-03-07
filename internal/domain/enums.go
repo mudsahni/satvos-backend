@@ -260,7 +260,28 @@ const (
 	AuditDocumentTagDeleted          AuditAction = "document.tag_deleted"
 	AuditDocumentDeleted             AuditAction = "document.deleted"
 	AuditDocumentAssigned            AuditAction = "document.assigned"
+	AuditSyncReviewApproved          AuditAction = "document.sync_review_approved"
+	AuditSyncReviewRejected          AuditAction = "document.sync_review_rejected"
+	AuditVoucherOverrideUpdated      AuditAction = "document.voucher_override_updated"
 )
+
+// SyncReviewStatus represents the sync review gate status of a document.
+type SyncReviewStatus string
+
+const (
+	SyncReviewNotApplicable SyncReviewStatus = "not_applicable"
+	SyncReviewPending       SyncReviewStatus = "pending"
+	SyncReviewApproved      SyncReviewStatus = "approved"
+	SyncReviewRejected      SyncReviewStatus = "rejected"
+)
+
+// ValidSyncReviewStatuses maps valid sync review status strings for filter validation.
+var ValidSyncReviewStatuses = map[SyncReviewStatus]bool{
+	SyncReviewNotApplicable: true,
+	SyncReviewPending:       true,
+	SyncReviewApproved:      true,
+	SyncReviewRejected:      true,
+}
 
 // FileStatus represents the lifecycle of an uploaded file.
 type FileStatus string

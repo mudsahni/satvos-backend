@@ -39,7 +39,8 @@
       "Bash(cd /home/muditsahni/Documents/Projects/satvos-tally-connector && gh run list --limit 5 2>&1)",
       "Bash(cd /home/muditsahni/Documents/Projects/satvos-tally-connector && make test 2>&1 | tail -5 && make build-windows 2>&1)",
       "Bash(cd /home/muditsahni/Documents/Projects/satvos-tally-connector && make lint 2>&1 && make test 2>&1 | tail -15 && make build-windows 2>&1)",
-      "Bash(cd /home/muditsahni/Documents/Projects/satvos-tally-connector && make lint 2>&1 && make test 2>&1 | tail -5 && make build-windows 2>&1)"
+      "Bash(cd /home/muditsahni/Documents/Projects/satvos-tally-connector && make lint 2>&1 && make test 2>&1 | tail -5 && make build-windows 2>&1)",
+      "Bash(go version)"
     ]
   }
 }

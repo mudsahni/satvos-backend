@@ -1918,7 +1918,7 @@ func TestDocumentHandler_VoucherPreview_Success(t *testing.T) {
 		VoucherType:     "Purchase",
 		MatchConfidence: map[string]string{"party_ledger": "high"},
 	}
-	voucherBuilder.On("Build", mock.Anything, tenantID, doc).Return(voucherDef, nil)
+	voucherBuilder.On("BuildWithOverrides", mock.Anything, tenantID, doc, (*domain.VoucherOverrides)(nil)).Return(voucherDef, nil)
 
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)

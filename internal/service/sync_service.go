@@ -16,6 +16,7 @@ import (
 // Defined in voucher_builder.go
 type VoucherBuilderService interface {
 	Build(ctx context.Context, tenantID uuid.UUID, doc *domain.Document) (*domain.VoucherDef, error)
+	BuildWithOverrides(ctx context.Context, tenantID uuid.UUID, doc *domain.Document, overrides *domain.VoucherOverrides) (*domain.VoucherDef, error)
 }
 
 // MasterPayload groups all Tally master data types for bulk save.
@@ -165,7 +166,16 @@ func (s *syncService) ListOutbound(ctx context.Context, tenantID, serviceAccount
 	for i := range docs {
 		doc := &docs[i]
 
-		vDef, buildErr := s.voucherBuilder.Build(ctx, tenantID, doc)
+		// Apply voucher overrides if present
+		var overrides *domain.VoucherOverrides
+		if doc.VoucherOverrides != nil && len(*doc.VoucherOverrides) > 0 {
+			overrides = &domain.VoucherOverrides{}
+			if jsonErr := json.Unmarshal(*doc.VoucherOverrides, overrides); jsonErr != nil {
+				log.Printf("WARNING: syncService.ListOutbound: failed to unmarshal voucher overrides for doc %s: %v", doc.ID, jsonErr)
+			}
+		}
+
+		vDef, buildErr := s.voucherBuilder.BuildWithOverrides(ctx, tenantID, doc, overrides)
 		if buildErr != nil {
 			log.Printf("WARNING: syncService.ListOutbound: failed to build voucher def for doc %s: %v", doc.ID, buildErr)
 			continue

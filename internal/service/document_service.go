@@ -73,6 +73,11 @@ type DocumentService interface {
 	DeleteTag(ctx context.Context, tenantID, docID, userID uuid.UUID, role domain.UserRole, tagID uuid.UUID) error
 	SearchByTag(ctx context.Context, tenantID uuid.UUID, key, value string, offset, limit int) ([]domain.Document, int, error)
 	ParseDocument(ctx context.Context, doc *domain.Document, maxAttempts int)
+	ListSyncReviewQueue(ctx context.Context, tenantID, userID uuid.UUID, role domain.UserRole, filters *port.SyncReviewFilters, offset, limit int) ([]domain.Document, int, error)
+	ApproveSyncBatch(ctx context.Context, tenantID, userID uuid.UUID, role domain.UserRole, docIDs []uuid.UUID) error
+	RejectSyncBatch(ctx context.Context, tenantID, userID uuid.UUID, role domain.UserRole, docIDs []uuid.UUID, reason string) error
+	ApproveCollectionSync(ctx context.Context, tenantID, userID uuid.UUID, role domain.UserRole, collectionID uuid.UUID) error
+	UpdateVoucherOverrides(ctx context.Context, tenantID, userID uuid.UUID, role domain.UserRole, docID uuid.UUID, overrides *domain.VoucherOverrides) error
 }
 
 // DocumentServiceDeps groups dependencies for NewDocumentService.

@@ -210,6 +210,7 @@ func (r *syncRepo) ListOutboundDocuments(ctx context.Context, tenantID uuid.UUID
 			WHERE d.tenant_id = $1
 				AND d.parsing_status = 'completed'
 				AND d.review_status = 'approved'
+				AND d.sync_review_status = 'approved'
 				AND NOT EXISTS (
 					SELECT 1 FROM sync_events se
 					WHERE se.document_id = d.id
@@ -229,6 +230,7 @@ func (r *syncRepo) ListOutboundDocuments(ctx context.Context, tenantID uuid.UUID
 			WHERE d.tenant_id = $1
 				AND d.parsing_status = 'completed'
 				AND d.review_status = 'approved'
+				AND d.sync_review_status = 'approved'
 				AND NOT EXISTS (
 					SELECT 1 FROM sync_events se
 					WHERE se.document_id = d.id

@@ -21,3 +21,11 @@ func (m *MockVoucherBuilder) Build(ctx context.Context, tenantID uuid.UUID, doc 
 	}
 	return args.Get(0).(*domain.VoucherDef), args.Error(1)
 }
+
+func (m *MockVoucherBuilder) BuildWithOverrides(ctx context.Context, tenantID uuid.UUID, doc *domain.Document, overrides *domain.VoucherOverrides) (*domain.VoucherDef, error) {
+	args := m.Called(ctx, tenantID, doc, overrides)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.VoucherDef), args.Error(1)
+}

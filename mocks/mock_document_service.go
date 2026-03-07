@@ -155,3 +155,31 @@ func (m *MockDocumentService) SearchByTag(ctx context.Context, tenantID uuid.UUI
 	}
 	return args.Get(0).([]domain.Document), args.Int(1), args.Error(2)
 }
+
+func (m *MockDocumentService) ListSyncReviewQueue(ctx context.Context, tenantID, userID uuid.UUID, role domain.UserRole, filters *port.SyncReviewFilters, offset, limit int) ([]domain.Document, int, error) {
+	args := m.Called(ctx, tenantID, userID, role, filters, offset, limit)
+	if args.Get(0) == nil {
+		return nil, args.Int(1), args.Error(2)
+	}
+	return args.Get(0).([]domain.Document), args.Int(1), args.Error(2)
+}
+
+func (m *MockDocumentService) ApproveSyncBatch(ctx context.Context, tenantID, userID uuid.UUID, role domain.UserRole, docIDs []uuid.UUID) error {
+	args := m.Called(ctx, tenantID, userID, role, docIDs)
+	return args.Error(0)
+}
+
+func (m *MockDocumentService) RejectSyncBatch(ctx context.Context, tenantID, userID uuid.UUID, role domain.UserRole, docIDs []uuid.UUID, reason string) error {
+	args := m.Called(ctx, tenantID, userID, role, docIDs, reason)
+	return args.Error(0)
+}
+
+func (m *MockDocumentService) ApproveCollectionSync(ctx context.Context, tenantID, userID uuid.UUID, role domain.UserRole, collectionID uuid.UUID) error {
+	args := m.Called(ctx, tenantID, userID, role, collectionID)
+	return args.Error(0)
+}
+
+func (m *MockDocumentService) UpdateVoucherOverrides(ctx context.Context, tenantID, userID uuid.UUID, role domain.UserRole, docID uuid.UUID, overrides *domain.VoucherOverrides) error {
+	args := m.Called(ctx, tenantID, userID, role, docID, overrides)
+	return args.Error(0)
+}

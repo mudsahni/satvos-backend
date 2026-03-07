@@ -98,6 +98,8 @@ func MapDomainError(err error) (status int, code, msg string) {
 		return http.StatusConflict, "DOCUMENT_ALREADY_EXISTS", "document already exists for this file"
 	case errors.Is(err, domain.ErrDocumentNotParsed):
 		return http.StatusBadRequest, "DOCUMENT_NOT_PARSED", "document has not been parsed yet"
+	case errors.Is(err, domain.ErrSyncReviewNotPending):
+		return http.StatusBadRequest, "SYNC_REVIEW_NOT_PENDING", "document sync review status is not pending"
 	case errors.Is(err, domain.ErrInsufficientRole):
 		return http.StatusForbidden, "INSUFFICIENT_ROLE", "insufficient role for this action"
 	case errors.Is(err, domain.ErrInvalidStructuredData):

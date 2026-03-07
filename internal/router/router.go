@@ -95,6 +95,9 @@ func Setup(
 	collections.DELETE("/:id/permissions/:userId", collectionH.RemovePermission)
 	collections.GET("/:id/export/csv", collectionH.ExportCSV)
 	collections.GET("/:id/export/tally", collectionH.ExportTally)
+	collections.POST("/:id/sync-queue/approve",
+		middleware.RequireRole(domain.RoleAdmin, domain.RoleManager, domain.RoleMember),
+		documentH.ApproveCollectionSync)
 
 	// Document routes
 	documents := protected.Group("/documents")
@@ -106,6 +109,15 @@ func Setup(
 	documents.GET("/tags/facets", documentH.TagFacets)
 	documents.GET("/search/tags", documentH.SearchByTag)
 	documents.GET("/review-queue", documentH.ReviewQueue)
+	documents.GET("/sync-queue",
+		middleware.RequireRole(domain.RoleAdmin, domain.RoleManager, domain.RoleMember),
+		documentH.ListSyncQueue)
+	documents.POST("/sync-queue/approve",
+		middleware.RequireRole(domain.RoleAdmin, domain.RoleManager, domain.RoleMember),
+		documentH.ApproveSyncBatch)
+	documents.POST("/sync-queue/reject",
+		middleware.RequireRole(domain.RoleAdmin, domain.RoleManager, domain.RoleMember),
+		documentH.RejectSyncBatch)
 	documents.GET("/:id", documentH.GetByID)
 	documents.PUT("/:id", documentH.EditStructuredData)
 	documents.POST("/:id/retry", documentH.Retry)
@@ -120,6 +132,9 @@ func Setup(
 	documents.GET("/:id/audit", documentH.ListAudit)
 	documents.GET("/:id/sync-events", documentH.ListSyncEvents)
 	documents.GET("/:id/voucher-preview", documentH.VoucherPreview)
+	documents.PUT("/:id/voucher-overrides",
+		middleware.RequireRole(domain.RoleAdmin, domain.RoleManager, domain.RoleMember),
+		documentH.UpdateVoucherOverrides)
 	documents.DELETE("/:id", middleware.RequireRole(domain.RoleAdmin), documentH.Delete)
 
 	// Stats

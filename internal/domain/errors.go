@@ -42,4 +42,5 @@ var (
 	ErrAlreadyExists             = errors.New("resource already exists")
 	ErrAgentNotFound             = errors.New("connector agent not found")
 	ErrAgentAlreadyExists        = errors.New("connector agent already registered for this service account")
+	ErrSyncReviewNotPending      = errors.New("document sync review status is not pending")
 )

@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
+	"github.com/lib/pq"
 
 	"satvos/internal/domain"
 	"satvos/internal/port"
@@ -266,10 +268,10 @@ func (r *documentRepo) UpdateReviewStatus(ctx context.Context, doc *domain.Docum
 	result, err := r.db.ExecContext(ctx,
 		`UPDATE documents SET
 			review_status = $1, reviewed_by = $2, reviewed_at = $3,
-			reviewer_notes = $4, updated_at = $5
-		 WHERE id = $6 AND tenant_id = $7`,
+			reviewer_notes = $4, sync_review_status = $5, updated_at = $6
+		 WHERE id = $7 AND tenant_id = $8`,
 		doc.ReviewStatus, doc.ReviewedBy, doc.ReviewedAt,
-		doc.ReviewerNotes, doc.UpdatedAt,
+		doc.ReviewerNotes, string(doc.SyncReviewStatus), doc.UpdatedAt,
 		doc.ID, doc.TenantID)
 	if err != nil {
 		return fmt.Errorf("documentRepo.UpdateReviewStatus: %w", err)
@@ -374,6 +376,74 @@ func (r *documentRepo) Delete(ctx context.Context, tenantID, docID uuid.UUID) er
 		docID, tenantID)
 	if err != nil {
 		return fmt.Errorf("documentRepo.Delete: %w", err)
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return domain.ErrDocumentNotFound
+	}
+	return nil
+}
+
+func (r *documentRepo) ListSyncReviewQueue(ctx context.Context, tenantID uuid.UUID, filters *port.SyncReviewFilters, offset, limit int) ([]domain.Document, int, error) {
+	baseWhere := "WHERE tenant_id = $1 AND sync_review_status = $2"
+	status := domain.SyncReviewPending
+	if filters != nil && filters.Status != "" {
+		status = filters.Status
+	}
+	args := []interface{}{tenantID, string(status)}
+
+	if filters != nil && filters.CollectionID != nil {
+		args = append(args, *filters.CollectionID)
+		baseWhere += fmt.Sprintf(" AND collection_id = $%d", len(args))
+	}
+
+	var total int
+	if err := r.db.GetContext(ctx, &total, "SELECT COUNT(*) FROM documents "+baseWhere, args...); err != nil {
+		return nil, 0, fmt.Errorf("documentRepo.ListSyncReviewQueue count: %w", err)
+	}
+
+	selectQuery := fmt.Sprintf("SELECT * FROM documents %s ORDER BY updated_at DESC LIMIT $%d OFFSET $%d",
+		baseWhere, len(args)+1, len(args)+2)
+	args = append(args, limit, offset)
+
+	var docs []domain.Document
+	if err := r.db.SelectContext(ctx, &docs, selectQuery, args...); err != nil {
+		return nil, 0, fmt.Errorf("documentRepo.ListSyncReviewQueue: %w", err)
+	}
+	return docs, total, nil
+}
+
+func (r *documentRepo) BatchUpdateSyncReviewStatus(ctx context.Context, tenantID uuid.UUID, docIDs []uuid.UUID, status domain.SyncReviewStatus, approvedBy *uuid.UUID) error {
+	now := time.Now().UTC()
+
+	var approvedAt *time.Time
+	if status == domain.SyncReviewApproved {
+		approvedAt = &now
+	}
+
+	result, err := r.db.ExecContext(ctx,
+		`UPDATE documents SET
+			sync_review_status = $1, sync_approved_by = $2, sync_approved_at = $3, updated_at = $4
+		 WHERE id = ANY($5) AND tenant_id = $6`,
+		string(status), approvedBy, approvedAt, now, pq.Array(docIDs), tenantID)
+	if err != nil {
+		return fmt.Errorf("documentRepo.BatchUpdateSyncReviewStatus: %w", err)
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return domain.ErrDocumentNotFound
+	}
+	return nil
+}
+
+func (r *documentRepo) UpdateVoucherOverrides(ctx context.Context, tenantID, docID uuid.UUID, overrides json.RawMessage) error {
+	now := time.Now().UTC()
+	result, err := r.db.ExecContext(ctx,
+		`UPDATE documents SET voucher_overrides = $1, updated_at = $2
+		 WHERE id = $3 AND tenant_id = $4`,
+		overrides, now, docID, tenantID)
+	if err != nil {
+		return fmt.Errorf("documentRepo.UpdateVoucherOverrides: %w", err)
 	}
 	rows, _ := result.RowsAffected()
 	if rows == 0 {

@@ -2,6 +2,7 @@ package mocks
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -112,5 +113,23 @@ func (m *MockDocumentRepo) ResetStaleProcessing(ctx context.Context, staleBefore
 
 func (m *MockDocumentRepo) Delete(ctx context.Context, tenantID, docID uuid.UUID) error {
 	args := m.Called(ctx, tenantID, docID)
+	return args.Error(0)
+}
+
+func (m *MockDocumentRepo) ListSyncReviewQueue(ctx context.Context, tenantID uuid.UUID, filters *port.SyncReviewFilters, offset, limit int) ([]domain.Document, int, error) {
+	args := m.Called(ctx, tenantID, filters, offset, limit)
+	if args.Get(0) == nil {
+		return nil, args.Int(1), args.Error(2)
+	}
+	return args.Get(0).([]domain.Document), args.Int(1), args.Error(2)
+}
+
+func (m *MockDocumentRepo) BatchUpdateSyncReviewStatus(ctx context.Context, tenantID uuid.UUID, docIDs []uuid.UUID, status domain.SyncReviewStatus, approvedBy *uuid.UUID) error {
+	args := m.Called(ctx, tenantID, docIDs, status, approvedBy)
+	return args.Error(0)
+}
+
+func (m *MockDocumentRepo) UpdateVoucherOverrides(ctx context.Context, tenantID, docID uuid.UUID, overrides json.RawMessage) error {
+	args := m.Called(ctx, tenantID, docID, overrides)
 	return args.Error(0)
 }
