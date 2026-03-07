@@ -26,6 +26,7 @@ linters:
     gosec:
       excludes:
         - G101 # false positives on variable names like "token"
+        - G118 # intentional background goroutines that outlive the request
     misspell:
       locale: US
 
@@ -35,6 +36,7 @@ linters:
         linters:
           - gosec
           - unparam
+          - prealloc
       - path: mocks/
         linters:
           - unused
