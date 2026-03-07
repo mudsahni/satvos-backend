@@ -2,12 +2,19 @@ package port
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
 
 	"satvos/internal/domain"
 )
+
+// SyncReviewFilters carries optional filters for the sync review queue listing.
+type SyncReviewFilters struct {
+	Status       domain.SyncReviewStatus
+	CollectionID *uuid.UUID
+}
 
 // DocumentListFilters carries optional server-side filters for document listing.
 type DocumentListFilters struct {
@@ -43,6 +50,9 @@ type DocumentRepository interface {
 	ClaimQueued(ctx context.Context, limit int) ([]domain.Document, error)
 	ResetStaleProcessing(ctx context.Context, staleBefore time.Time) (int, error)
 	Delete(ctx context.Context, tenantID, docID uuid.UUID) error
+	ListSyncReviewQueue(ctx context.Context, tenantID uuid.UUID, filters *SyncReviewFilters, offset, limit int) ([]domain.Document, int, error)
+	BatchUpdateSyncReviewStatus(ctx context.Context, tenantID uuid.UUID, docIDs []uuid.UUID, status domain.SyncReviewStatus, approvedBy *uuid.UUID) error
+	UpdateVoucherOverrides(ctx context.Context, tenantID, docID uuid.UUID, overrides json.RawMessage) error
 }
 
 // DocumentTagRepository defines the contract for document tag persistence.

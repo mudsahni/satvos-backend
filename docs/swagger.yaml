@@ -160,6 +160,12 @@ definitions:
         type: string
       structured_data:
         type: object
+      sync_approved_at:
+        type: string
+      sync_approved_by:
+        type: string
+      sync_review_status:
+        $ref: '#/definitions/domain.SyncReviewStatus'
       sync_status:
         $ref: '#/definitions/domain.DocumentSyncStatus'
       tenant_id:
@@ -170,6 +176,8 @@ definitions:
         type: object
       validation_status:
         $ref: '#/definitions/domain.ValidationStatus'
+      voucher_overrides:
+        type: object
     type: object
   domain.DocumentSyncStatus:
     enum:
@@ -438,6 +446,18 @@ definitions:
       validation_warning:
         type: integer
     type: object
+  domain.SyncReviewStatus:
+    enum:
+    - not_applicable
+    - pending
+    - approved
+    - rejected
+    type: string
+    x-enum-varnames:
+    - SyncReviewNotApplicable
+    - SyncReviewPending
+    - SyncReviewApproved
+    - SyncReviewRejected
   domain.TaxSummaryRow:
     properties:
       cess:

@@ -99,6 +99,10 @@ type Document struct {
 	ParseAttempts        int                  `db:"parse_attempts" json:"parse_attempts"`
 	RetryAfter           *time.Time           `db:"retry_after" json:"retry_after,omitempty"`
 	SyncStatus           DocumentSyncStatus   `db:"sync_status" json:"sync_status"`
+	SyncReviewStatus     SyncReviewStatus     `db:"sync_review_status" json:"sync_review_status"`
+	SyncApprovedBy       *uuid.UUID           `db:"sync_approved_by" json:"sync_approved_by,omitempty"`
+	SyncApprovedAt       *time.Time           `db:"sync_approved_at" json:"sync_approved_at,omitempty"`
+	VoucherOverrides     *json.RawMessage     `db:"voucher_overrides" json:"voucher_overrides,omitempty" swaggertype:"object"`
 	AssignedTo           *uuid.UUID           `db:"assigned_to" json:"assigned_to"`
 	AssignedAt           *time.Time           `db:"assigned_at" json:"assigned_at,omitempty"`
 	AssignedBy           *uuid.UUID           `db:"assigned_by" json:"assigned_by"`
@@ -534,4 +538,12 @@ type VoucherDefItem struct {
 	UOM       string  `json:"uom"`
 	Godown    string  `json:"godown"`
 	HSNCode   string  `json:"hsn_code"`
+}
+
+// VoucherOverrides holds manual overrides for voucher generation.
+type VoucherOverrides struct {
+	PartyLedger    *string           `json:"party_ledger,omitempty"`
+	PurchaseLedger *string           `json:"purchase_ledger,omitempty"`
+	TaxOverrides   map[string]string `json:"tax_overrides,omitempty"`  // rate → ledger name
+	ItemOverrides  map[string]string `json:"item_overrides,omitempty"` // item name → stock item name
 }

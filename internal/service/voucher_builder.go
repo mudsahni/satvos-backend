@@ -75,6 +75,49 @@ func (b *voucherBuilder) Build(ctx context.Context, tenantID uuid.UUID, doc *dom
 	}, nil
 }
 
+// BuildWithOverrides matches a parsed invoice against synced Tally masters, then applies manual overrides.
+func (b *voucherBuilder) BuildWithOverrides(ctx context.Context, tenantID uuid.UUID, doc *domain.Document, overrides *domain.VoucherOverrides) (*domain.VoucherDef, error) {
+	vDef, err := b.Build(ctx, tenantID, doc)
+	if err != nil {
+		return nil, err
+	}
+	if overrides == nil {
+		return vDef, nil
+	}
+
+	if overrides.PartyLedger != nil {
+		vDef.PartyLedger = *overrides.PartyLedger
+		vDef.MatchConfidence["party_ledger"] = "manual_override"
+	}
+	if overrides.PurchaseLedger != nil {
+		vDef.PurchaseLedger = *overrides.PurchaseLedger
+		vDef.MatchConfidence["purchase_ledger"] = "manual_override"
+	}
+	for rate, ledgerName := range overrides.TaxOverrides {
+		// Find matching tax entry by rate key (e.g. "cgst", "sgst", "igst")
+		confKey := "tax_" + rate
+		for i := range vDef.TaxEntries {
+			if vDef.MatchConfidence[confKey] != "" {
+				vDef.TaxEntries[i].LedgerName = ledgerName
+				vDef.MatchConfidence[confKey] = "manual_override"
+				break
+			}
+		}
+	}
+	for itemName, stockItemName := range overrides.ItemOverrides {
+		for i := range vDef.InventoryItems {
+			if vDef.InventoryItems[i].StockItem == itemName {
+				vDef.InventoryItems[i].StockItem = stockItemName
+				itemKey := fmt.Sprintf("item_%d", i)
+				vDef.MatchConfidence[itemKey] = "manual_override"
+				break
+			}
+		}
+	}
+
+	return vDef, nil
+}
+
 // matchPartyLedger finds the party ledger by GSTIN, falling back to normalized name.
 func (b *voucherBuilder) matchPartyLedger(ctx context.Context, tenantID uuid.UUID, seller *invoice.Party, confidence map[string]string) string {
 	if seller.GSTIN != "" {

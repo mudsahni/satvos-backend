@@ -4463,6 +4463,15 @@ const docTemplate = `{
                 "structured_data": {
                     "type": "object"
                 },
+                "sync_approved_at": {
+                    "type": "string"
+                },
+                "sync_approved_by": {
+                    "type": "string"
+                },
+                "sync_review_status": {
+                    "$ref": "#/definitions/domain.SyncReviewStatus"
+                },
                 "sync_status": {
                     "$ref": "#/definitions/domain.DocumentSyncStatus"
                 },
@@ -4477,6 +4486,9 @@ const docTemplate = `{
                 },
                 "validation_status": {
                     "$ref": "#/definitions/domain.ValidationStatus"
+                },
+                "voucher_overrides": {
+                    "type": "object"
                 }
             }
         },
@@ -4865,6 +4877,21 @@ const docTemplate = `{
                     "type": "integer"
                 }
             }
+        },
+        "domain.SyncReviewStatus": {
+            "type": "string",
+            "enum": [
+                "not_applicable",
+                "pending",
+                "approved",
+                "rejected"
+            ],
+            "x-enum-varnames": [
+                "SyncReviewNotApplicable",
+                "SyncReviewPending",
+                "SyncReviewApproved",
+                "SyncReviewRejected"
+            ]
         },
         "domain.TaxSummaryRow": {
             "type": "object",

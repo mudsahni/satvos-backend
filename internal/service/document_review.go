@@ -40,6 +40,14 @@ func (s *documentService) UpdateReview(ctx context.Context, input *UpdateReviewI
 	doc.ReviewedAt = &now
 	doc.ReviewerNotes = input.Notes
 
+	// Auto-set sync_review_status based on review decision
+	switch input.Status {
+	case domain.ReviewStatusApproved:
+		doc.SyncReviewStatus = domain.SyncReviewPending
+	case domain.ReviewStatusRejected:
+		doc.SyncReviewStatus = domain.SyncReviewNotApplicable
+	}
+
 	if err := s.docRepo.UpdateReviewStatus(ctx, doc); err != nil {
 		return nil, fmt.Errorf("updating review status: %w", err)
 	}
