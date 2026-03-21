@@ -133,7 +133,7 @@ func TestVoucherBuilder_FullMatch(t *testing.T) {
 
 	assert.Equal(t, doc.ID, vDef.DocumentID)
 	assert.Equal(t, "Purchase", vDef.VoucherType)
-	assert.Equal(t, "15/01/2026", vDef.VoucherDate)
+	assert.Equal(t, "2026-01-15", vDef.VoucherDate)
 	assert.Equal(t, "Acme Pvt Ltd", vDef.PartyLedger)
 	assert.Equal(t, "Purchase - Trading", vDef.PurchaseLedger)
 	assert.Equal(t, 2360.0, vDef.TotalAmount)
