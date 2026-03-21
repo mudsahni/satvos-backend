@@ -55,8 +55,9 @@ func (b *voucherBuilder) Build(ctx context.Context, tenantID uuid.UUID, doc *dom
 	// 5. Build narration
 	narration := buildVoucherNarration(&inv)
 
-	// 6. Parse voucher date
-	voucherDate := inv.Invoice.InvoiceDate
+	// 6. Normalize voucher date to YYYY-MM-DD (connector expects this format).
+	// LLM parser returns DD-MM-YYYY per prompt instructions.
+	voucherDate := normalizeVoucherDate(inv.Invoice.InvoiceDate)
 
 	remoteID := fmt.Sprintf("%s-%s", tenantID, doc.ID)
 
@@ -298,6 +299,36 @@ func calculateTaxRate(taxAmount, taxableAmount float64) float64 {
 // formatRate formats a rate without trailing zeros.
 func formatRate(rate float64) string {
 	return strconv.FormatFloat(rate, 'f', -1, 64)
+}
+
+// normalizeVoucherDate converts a date string to YYYY-MM-DD format.
+// Handles DD-MM-YYYY, DD/MM/YYYY, and passes through YYYY-MM-DD as-is.
+// Returns empty string if the date cannot be parsed.
+func normalizeVoucherDate(dateStr string) string {
+	dateStr = strings.TrimSpace(dateStr)
+	if dateStr == "" {
+		return ""
+	}
+
+	// Replace slashes with dashes for uniform parsing
+	dateStr = strings.ReplaceAll(dateStr, "/", "-")
+
+	parts := strings.Split(dateStr, "-")
+	if len(parts) != 3 {
+		return dateStr // return as-is if unparseable
+	}
+
+	// If first part is 4 digits, it's already YYYY-MM-DD
+	if len(parts[0]) == 4 {
+		return dateStr
+	}
+
+	// Otherwise assume DD-MM-YYYY → YYYY-MM-DD
+	if len(parts[2]) == 4 {
+		return parts[2] + "-" + parts[1] + "-" + parts[0]
+	}
+
+	return dateStr // return as-is if format is unknown
 }
 
 // buildVoucherNarration builds a narration string for the voucher.
