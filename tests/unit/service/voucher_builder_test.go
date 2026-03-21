@@ -145,7 +145,7 @@ func TestVoucherBuilder_FullMatch(t *testing.T) {
 	assert.Equal(t, "Input SGST @9%", vDef.TaxEntries[1].LedgerName)
 	assert.Equal(t, 180.0, vDef.TaxEntries[1].Amount)
 
-	// Inventory items
+	// Inventory items — both matched in Tally masters
 	require.Len(t, vDef.InventoryItems, 2)
 	assert.Equal(t, "Laptop", vDef.InventoryItems[0].StockItem)
 	assert.Equal(t, "84713010", vDef.InventoryItems[0].HSNCode)
@@ -189,8 +189,6 @@ func TestVoucherBuilder_PartyGSTINNotFound(t *testing.T) {
 		Return(nil, domain.ErrNotFound)
 	masterRepo.On("FindStockItemByHSN", mock.Anything, tenantID, mock.AnythingOfType("string")).
 		Return(nil, domain.ErrNotFound)
-	masterRepo.On("FindUnitBySymbol", mock.Anything, tenantID, mock.AnythingOfType("string")).
-		Return(nil, domain.ErrNotFound)
 	masterRepo.On("GetDefaultGodown", mock.Anything, tenantID).
 		Return(nil, domain.ErrNotFound)
 
@@ -201,6 +199,9 @@ func TestVoucherBuilder_PartyGSTINNotFound(t *testing.T) {
 	// Party ledger should be the normalized company name
 	assert.Equal(t, "ACME PVT LTD", vDef.PartyLedger)
 	assert.Equal(t, "convention", vDef.MatchConfidence["party_ledger"])
+
+	// No stock items matched — inventory should be empty
+	assert.Empty(t, vDef.InventoryItems)
 
 	masterRepo.AssertExpectations(t)
 }
@@ -224,8 +225,6 @@ func TestVoucherBuilder_NoStockItem(t *testing.T) {
 	// Stock items NOT found by HSN
 	masterRepo.On("FindStockItemByHSN", mock.Anything, tenantID, mock.AnythingOfType("string")).
 		Return(nil, domain.ErrNotFound)
-	masterRepo.On("FindUnitBySymbol", mock.Anything, tenantID, mock.AnythingOfType("string")).
-		Return(nil, domain.ErrNotFound)
 	masterRepo.On("GetDefaultGodown", mock.Anything, tenantID).
 		Return(nil, domain.ErrNotFound)
 
@@ -233,14 +232,10 @@ func TestVoucherBuilder_NoStockItem(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, vDef)
 
-	// Items should fall back to description
-	require.Len(t, vDef.InventoryItems, 2)
-	assert.Equal(t, "Widget A", vDef.InventoryItems[0].StockItem)
-	assert.Equal(t, "84713010", vDef.InventoryItems[0].HSNCode)
-	assert.Equal(t, "description_fallback", vDef.MatchConfidence["item_0"])
-
-	assert.Equal(t, "Widget B", vDef.InventoryItems[1].StockItem)
-	assert.Equal(t, "description_fallback", vDef.MatchConfidence["item_1"])
+	// No stock items found — inventory should be empty (accounting-only voucher)
+	assert.Empty(t, vDef.InventoryItems)
+	assert.Equal(t, "no_stock_item", vDef.MatchConfidence["item_0"])
+	assert.Equal(t, "no_stock_item", vDef.MatchConfidence["item_1"])
 
 	masterRepo.AssertExpectations(t)
 }
@@ -265,10 +260,8 @@ func TestVoucherBuilder_NoTaxLedger(t *testing.T) {
 	masterRepo.On("FindTaxLedger", mock.Anything, tenantID, "SGST", mock.AnythingOfType("float64")).
 		Return(nil, domain.ErrNotFound)
 
-	// Stock items, UOM, godown
+	// Stock items not found
 	masterRepo.On("FindStockItemByHSN", mock.Anything, tenantID, mock.AnythingOfType("string")).
-		Return(nil, domain.ErrNotFound)
-	masterRepo.On("FindUnitBySymbol", mock.Anything, tenantID, mock.AnythingOfType("string")).
 		Return(nil, domain.ErrNotFound)
 	masterRepo.On("GetDefaultGodown", mock.Anything, tenantID).
 		Return(nil, domain.ErrNotFound)
@@ -364,12 +357,8 @@ func TestVoucherBuilder_InterstateTax(t *testing.T) {
 	masterRepo.On("FindTaxLedger", mock.Anything, tenantID, "IGST", mock.AnythingOfType("float64")).
 		Return(&domain.TallyLedger{Name: "Input IGST @18%"}, nil)
 
-	// Stock item
+	// Stock item not found
 	masterRepo.On("FindStockItemByHSN", mock.Anything, tenantID, "73089090").
-		Return(nil, domain.ErrNotFound)
-
-	// UOM, godown
-	masterRepo.On("FindUnitBySymbol", mock.Anything, tenantID, "Nos").
 		Return(nil, domain.ErrNotFound)
 	masterRepo.On("GetDefaultGodown", mock.Anything, tenantID).
 		Return(nil, domain.ErrNotFound)
@@ -391,6 +380,9 @@ func TestVoucherBuilder_InterstateTax(t *testing.T) {
 	assert.False(t, hasSGST)
 
 	assert.Equal(t, 11800.0, vDef.TotalAmount)
+
+	// No stock items matched — empty inventory
+	assert.Empty(t, vDef.InventoryItems)
 
 	masterRepo.AssertExpectations(t)
 }
@@ -484,8 +476,6 @@ func TestVoucherBuilder_MatchConfidence(t *testing.T) {
 
 	masterRepo.On("FindUnitBySymbol", mock.Anything, tenantID, "Nos").
 		Return(&domain.TallyUnit{Symbol: "Nos"}, nil)
-	masterRepo.On("FindUnitBySymbol", mock.Anything, tenantID, "Pcs").
-		Return(nil, domain.ErrNotFound)
 	masterRepo.On("GetDefaultGodown", mock.Anything, tenantID).
 		Return(&domain.TallyGodown{Name: "Warehouse A"}, nil)
 
@@ -499,13 +489,13 @@ func TestVoucherBuilder_MatchConfidence(t *testing.T) {
 	assert.Equal(t, "exact_rate", vDef.MatchConfidence["tax_cgst"])
 	assert.Equal(t, "convention", vDef.MatchConfidence["tax_sgst"])
 	assert.Equal(t, "exact_hsn", vDef.MatchConfidence["item_0"])
-	assert.Equal(t, "description_fallback", vDef.MatchConfidence["item_1"])
-	assert.Equal(t, "no_hsn", vDef.MatchConfidence["item_2"])
+	assert.Equal(t, "no_stock_item", vDef.MatchConfidence["item_1"])
+	assert.Equal(t, "no_stock_item", vDef.MatchConfidence["item_2"])
 
-	// Verify the no-HSN item uses description
-	require.Len(t, vDef.InventoryItems, 3)
-	assert.Equal(t, "Service Fee", vDef.InventoryItems[2].StockItem)
-	assert.Equal(t, "", vDef.InventoryItems[2].HSNCode)
+	// Only 1 inventory item (the one that matched in Tally masters)
+	require.Len(t, vDef.InventoryItems, 1)
+	assert.Equal(t, "Laptop", vDef.InventoryItems[0].StockItem)
+	assert.Equal(t, "84713010", vDef.InventoryItems[0].HSNCode)
 
 	masterRepo.AssertExpectations(t)
 }
@@ -560,8 +550,57 @@ func TestVoucherBuilder_ZeroQuantityDefaultsToOne(t *testing.T) {
 		Return(nil, domain.ErrNotFound).Maybe()
 	masterRepo.On("FindPurchaseLedger", mock.Anything, tenantID).
 		Return(nil, domain.ErrNotFound)
+	// Stock item NOT found — no inventory entry created
 	masterRepo.On("FindStockItemByHSN", mock.Anything, tenantID, "998314").
 		Return(nil, domain.ErrNotFound)
+	masterRepo.On("GetDefaultGodown", mock.Anything, tenantID).
+		Return(nil, domain.ErrNotFound)
+
+	vDef, err := builder.Build(context.Background(), tenantID, doc)
+	require.NoError(t, err)
+	require.NotNil(t, vDef)
+
+	// Stock item not found in Tally — no inventory entries
+	assert.Empty(t, vDef.InventoryItems)
+	assert.Equal(t, "no_stock_item", vDef.MatchConfidence["item_0"])
+}
+
+func TestVoucherBuilder_ZeroQuantityDefaultsToOne_WithStockItem(t *testing.T) {
+	masterRepo := new(mocks.MockTallyMasterRepo)
+	builder := service.NewVoucherBuilderService(masterRepo)
+
+	inv := &invoice.GSTInvoice{
+		Invoice: invoice.InvoiceHeader{
+			InvoiceNumber: "INV-QTY-002",
+			InvoiceDate:   "01/01/2026",
+		},
+		Seller: invoice.Party{
+			Name: "Vendor X",
+		},
+		LineItems: []invoice.LineItem{
+			{
+				Description:   "Widget",
+				HSNSACCode:    "84713010",
+				Quantity:      0, // zero quantity
+				UnitPrice:     0,
+				TaxableAmount: 3000,
+			},
+		},
+		Totals: invoice.Totals{
+			TaxableAmount: 3000,
+			Total:         3000,
+		},
+	}
+
+	doc := buildTestDocument(t, inv)
+	tenantID := doc.TenantID
+
+	masterRepo.On("FindLedgerByGSTIN", mock.Anything, tenantID, mock.AnythingOfType("string")).
+		Return(nil, domain.ErrNotFound).Maybe()
+	masterRepo.On("FindPurchaseLedger", mock.Anything, tenantID).
+		Return(nil, domain.ErrNotFound)
+	masterRepo.On("FindStockItemByHSN", mock.Anything, tenantID, "84713010").
+		Return(&domain.TallyStockItem{Name: "Laptop", HSNCode: "84713010"}, nil)
 	masterRepo.On("FindUnitBySymbol", mock.Anything, tenantID, mock.AnythingOfType("string")).
 		Return(nil, domain.ErrNotFound).Maybe()
 	masterRepo.On("GetDefaultGodown", mock.Anything, tenantID).
@@ -592,6 +631,7 @@ func TestVoucherBuilder_EmptyUnitDefaultsToNos(t *testing.T) {
 		LineItems: []invoice.LineItem{
 			{
 				Description:   "Misc Item",
+				HSNSACCode:    "84713010",
 				Quantity:      5,
 				Unit:          "", // empty unit
 				UnitPrice:     100,
@@ -611,8 +651,9 @@ func TestVoucherBuilder_EmptyUnitDefaultsToNos(t *testing.T) {
 		Return(nil, domain.ErrNotFound).Maybe()
 	masterRepo.On("FindPurchaseLedger", mock.Anything, tenantID).
 		Return(nil, domain.ErrNotFound)
-	masterRepo.On("FindStockItemByHSN", mock.Anything, tenantID, mock.AnythingOfType("string")).
-		Return(nil, domain.ErrNotFound).Maybe()
+	// Stock item found this time — so inventory entry is created
+	masterRepo.On("FindStockItemByHSN", mock.Anything, tenantID, "84713010").
+		Return(&domain.TallyStockItem{Name: "Misc Item", HSNCode: "84713010"}, nil)
 	masterRepo.On("GetDefaultGodown", mock.Anything, tenantID).
 		Return(nil, domain.ErrNotFound)
 
