@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -197,6 +198,9 @@ func (b *voucherBuilder) matchTaxLedgers(ctx context.Context, tenantID uuid.UUID
 }
 
 // matchInventoryItems builds inventory items from line items.
+// Only includes items that match an actual stock item in Tally.
+// Service invoices (ads, subscriptions, etc.) typically have no matching
+// stock items, so they become accounting-only vouchers with no inventory.
 func (b *voucherBuilder) matchInventoryItems(ctx context.Context, tenantID uuid.UUID, inv *invoice.GSTInvoice, confidence map[string]string) []domain.VoucherDefItem {
 	if len(inv.LineItems) == 0 {
 		return nil
@@ -209,12 +213,19 @@ func (b *voucherBuilder) matchInventoryItems(ctx context.Context, tenantID uuid.
 		godownName = godown.Name
 	}
 
-	items := make([]domain.VoucherDefItem, 0, len(inv.LineItems))
+	var items []domain.VoucherDefItem
 	for idx := range inv.LineItems {
 		li := &inv.LineItems[idx]
 		itemKey := fmt.Sprintf("item_%d", idx)
 
-		stockName, hsnCode := b.matchStockItem(ctx, tenantID, li, itemKey, confidence)
+		stockName, hsnCode, matched := b.matchStockItemStrict(ctx, tenantID, li, itemKey, confidence)
+		if !matched {
+			// No matching stock item in Tally — skip this line item from inventory.
+			// The amount is still captured in the purchase ledger entry.
+			confidence[itemKey] = "no_stock_item"
+			continue
+		}
+
 		uom := b.matchUOM(ctx, tenantID, li.Unit)
 
 		qty := li.Quantity
@@ -246,32 +257,21 @@ func (b *voucherBuilder) matchInventoryItems(ctx context.Context, tenantID uuid.
 	return items
 }
 
-// matchStockItem finds a stock item by HSN, falling back to description.
-func (b *voucherBuilder) matchStockItem(ctx context.Context, tenantID uuid.UUID, li *invoice.LineItem, itemKey string, confidence map[string]string) (stockName, hsnCode string) {
+// matchStockItemStrict finds a stock item only if it exists in Tally masters.
+// Returns matched=false if no Tally stock item was found (service invoices, unknown items).
+func (b *voucherBuilder) matchStockItemStrict(ctx context.Context, tenantID uuid.UUID, li *invoice.LineItem, itemKey string, confidence map[string]string) (stockName, hsnCode string, matched bool) {
 	hsnCode = li.HSNSACCode
 
 	if hsnCode != "" {
 		stockItem, err := b.masterRepo.FindStockItemByHSN(ctx, tenantID, hsnCode)
 		if err == nil && stockItem != nil {
 			confidence[itemKey] = "exact_hsn"
-			return stockItem.Name, hsnCode
+			return stockItem.Name, hsnCode, true
 		}
-
-		// HSN present but not found in masters
-		if li.Description != "" {
-			confidence[itemKey] = "description_fallback"
-			return li.Description, hsnCode
-		}
-		confidence[itemKey] = "description_fallback"
-		return fmt.Sprintf("Item (HSN: %s)", hsnCode), hsnCode
 	}
 
-	// No HSN code at all
-	confidence[itemKey] = "no_hsn"
-	if li.Description != "" {
-		return li.Description, ""
-	}
-	return "Unknown Item", ""
+	// No match in Tally masters — don't fabricate a stock item name
+	return "", hsnCode, false
 }
 
 // matchUOM finds the unit of measure by symbol, falling back to the raw unit string.
@@ -289,16 +289,33 @@ func (b *voucherBuilder) matchUOM(ctx context.Context, tenantID uuid.UUID, unit 
 }
 
 // calculateTaxRate derives the tax rate from the tax amount and taxable amount.
+// Rounds to 2 decimal places to avoid floating point noise (e.g., 18.00003 → 18.00).
+// Then snaps to standard GST rates if within 0.1% tolerance.
 func calculateTaxRate(taxAmount, taxableAmount float64) float64 {
 	if taxableAmount == 0 {
 		return 0
 	}
-	return (taxAmount / taxableAmount) * 100
+	raw := (taxAmount / taxableAmount) * 100
+
+	// Snap to standard Indian GST rates if close enough (within 0.1%)
+	standardRates := []float64{0, 0.25, 1.5, 2.5, 3, 5, 6, 7.5, 9, 12, 14, 18, 28}
+	for _, std := range standardRates {
+		if diff := raw - std; diff < 0.1 && diff > -0.1 {
+			return std
+		}
+	}
+
+	// Round to 2 decimal places for non-standard rates
+	return math.Round(raw*100) / 100
 }
 
 // formatRate formats a rate without trailing zeros.
 func formatRate(rate float64) string {
-	return strconv.FormatFloat(rate, 'f', -1, 64)
+	s := strconv.FormatFloat(rate, 'f', 2, 64)
+	// Trim trailing zeros: "18.00" → "18", "2.50" → "2.5"
+	s = strings.TrimRight(s, "0")
+	s = strings.TrimRight(s, ".")
+	return s
 }
 
 // normalizeVoucherDate converts a date string to YYYY-MM-DD format.
