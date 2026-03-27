@@ -195,6 +195,9 @@ func TestVoucherBuilder_PartyGSTINNotFound(t *testing.T) {
 	// GSTIN not found
 	masterRepo.On("FindLedgerByGSTIN", mock.Anything, tenantID, "29AABCU9603R1ZM").
 		Return(nil, domain.ErrNotFound)
+	// Normalized name not found either
+	masterRepo.On("FindLedgerByNormalizedName", mock.Anything, tenantID, "ACME PVT LTD").
+		Return(nil, domain.ErrNotFound)
 
 	// Other lookups
 	masterRepo.On("FindPurchaseLedger", mock.Anything, tenantID).
@@ -230,6 +233,8 @@ func TestVoucherBuilder_NoStockItem(t *testing.T) {
 
 	// Party and purchase
 	masterRepo.On("FindLedgerByGSTIN", mock.Anything, tenantID, mock.AnythingOfType("string")).
+		Return(nil, domain.ErrNotFound)
+	masterRepo.On("FindLedgerByNormalizedName", mock.Anything, tenantID, mock.AnythingOfType("string")).
 		Return(nil, domain.ErrNotFound)
 	masterRepo.On("FindPurchaseLedger", mock.Anything, tenantID).
 		Return(nil, domain.ErrNotFound)
@@ -365,6 +370,8 @@ func TestVoucherBuilder_InterstateTax(t *testing.T) {
 	// Party
 	masterRepo.On("FindLedgerByGSTIN", mock.Anything, tenantID, "27AABCI1234R1ZM").
 		Return(nil, domain.ErrNotFound)
+	masterRepo.On("FindLedgerByNormalizedName", mock.Anything, tenantID, "INTERSTATE SUPPLIER").
+		Return(nil, domain.ErrNotFound)
 
 	// Purchase
 	masterRepo.On("FindPurchaseLedger", mock.Anything, tenantID).
@@ -430,6 +437,8 @@ func TestVoucherBuilder_NoLineItems(t *testing.T) {
 	tenantID := doc.TenantID
 
 	masterRepo.On("FindLedgerByGSTIN", mock.Anything, tenantID, "29AABCS0001R1Z1").
+		Return(nil, domain.ErrNotFound)
+	masterRepo.On("FindLedgerByNormalizedName", mock.Anything, tenantID, "SIMPLE VENDOR").
 		Return(nil, domain.ErrNotFound)
 	masterRepo.On("FindPurchaseLedger", mock.Anything, tenantID).
 		Return(nil, domain.ErrNotFound)
@@ -568,6 +577,8 @@ func TestVoucherBuilder_ZeroQuantityDefaultsToOne(t *testing.T) {
 
 	masterRepo.On("FindLedgerByGSTIN", mock.Anything, tenantID, mock.AnythingOfType("string")).
 		Return(nil, domain.ErrNotFound).Maybe()
+	masterRepo.On("FindLedgerByNormalizedName", mock.Anything, tenantID, "VENDOR X").
+		Return(nil, domain.ErrNotFound)
 	masterRepo.On("FindPurchaseLedger", mock.Anything, tenantID).
 		Return(nil, domain.ErrNotFound)
 	// Stock item NOT found — no inventory entry created
@@ -617,6 +628,8 @@ func TestVoucherBuilder_ZeroQuantityDefaultsToOne_WithStockItem(t *testing.T) {
 
 	masterRepo.On("FindLedgerByGSTIN", mock.Anything, tenantID, mock.AnythingOfType("string")).
 		Return(nil, domain.ErrNotFound).Maybe()
+	masterRepo.On("FindLedgerByNormalizedName", mock.Anything, tenantID, "VENDOR X").
+		Return(nil, domain.ErrNotFound)
 	masterRepo.On("FindPurchaseLedger", mock.Anything, tenantID).
 		Return(nil, domain.ErrNotFound)
 	masterRepo.On("FindStockItemByHSN", mock.Anything, tenantID, "84713010").
@@ -669,6 +682,8 @@ func TestVoucherBuilder_EmptyUnitDefaultsToNos(t *testing.T) {
 
 	masterRepo.On("FindLedgerByGSTIN", mock.Anything, tenantID, mock.AnythingOfType("string")).
 		Return(nil, domain.ErrNotFound).Maybe()
+	masterRepo.On("FindLedgerByNormalizedName", mock.Anything, tenantID, "VENDOR Y").
+		Return(nil, domain.ErrNotFound)
 	masterRepo.On("FindPurchaseLedger", mock.Anything, tenantID).
 		Return(nil, domain.ErrNotFound)
 	// Stock item found this time — so inventory entry is created
@@ -683,6 +698,55 @@ func TestVoucherBuilder_EmptyUnitDefaultsToNos(t *testing.T) {
 
 	require.Len(t, vDef.InventoryItems, 1)
 	assert.Equal(t, "Nos", vDef.InventoryItems[0].UOM)
+}
+
+func TestVoucherBuilder_NormalizedNameMatch(t *testing.T) {
+	masterRepo := new(mocks.MockTallyMasterRepo)
+	builder := service.NewVoucherBuilderService(masterRepo)
+
+	inv := &invoice.GSTInvoice{
+		Invoice: invoice.InvoiceHeader{
+			InvoiceNumber: "INV-NAME-001",
+			InvoiceDate:   "01/03/2026",
+		},
+		Seller: invoice.Party{
+			Name:  "Acme Private Limited",
+			GSTIN: "29AABCU9603R1ZM",
+		},
+		LineItems: nil,
+		Totals: invoice.Totals{
+			TaxableAmount: 5000,
+			CGST:          450,
+			SGST:          450,
+			Total:         5900,
+		},
+	}
+
+	doc := buildTestDocument(t, inv)
+	tenantID := doc.TenantID
+
+	// GSTIN not found
+	masterRepo.On("FindLedgerByGSTIN", mock.Anything, tenantID, "29AABCU9603R1ZM").
+		Return(nil, domain.ErrNotFound)
+
+	// Normalized name match found — "ACME PVT LTD" matches a Tally ledger named "Acme Pvt Ltd"
+	masterRepo.On("FindLedgerByNormalizedName", mock.Anything, tenantID, "ACME PVT LTD").
+		Return(&domain.TallyLedger{Name: "Acme Pvt Ltd"}, nil)
+
+	masterRepo.On("FindPurchaseLedger", mock.Anything, tenantID).
+		Return(nil, domain.ErrNotFound)
+	masterRepo.On("FindTaxLedger", mock.Anything, tenantID, mock.AnythingOfType("string"), mock.AnythingOfType("float64")).
+		Return(nil, domain.ErrNotFound)
+
+	vDef, err := builder.Build(context.Background(), tenantID, doc)
+	require.NoError(t, err)
+	require.NotNil(t, vDef)
+
+	// Should use Tally's exact name, not our normalized version
+	assert.Equal(t, "Acme Pvt Ltd", vDef.PartyLedger)
+	assert.Equal(t, "normalized_name", vDef.MatchConfidence["party_ledger"])
+
+	masterRepo.AssertExpectations(t)
 }
 
 func TestVoucherBuilder_PartyNoGSTINNoName(t *testing.T) {

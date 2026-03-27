@@ -145,8 +145,9 @@ func (b *voucherBuilder) BuildWithOverrides(ctx context.Context, tenantID uuid.U
 	return vDef, nil
 }
 
-// matchPartyLedger finds the party ledger by GSTIN, falling back to normalized name.
+// matchPartyLedger finds the party ledger by GSTIN, then normalized name, falling back to convention.
 func (b *voucherBuilder) matchPartyLedger(ctx context.Context, tenantID uuid.UUID, seller *invoice.Party, confidence map[string]string) string {
+	// 1. Try exact GSTIN match
 	if seller.GSTIN != "" {
 		ledger, err := b.masterRepo.FindLedgerByGSTIN(ctx, tenantID, seller.GSTIN)
 		if err == nil && ledger != nil {
@@ -155,11 +156,17 @@ func (b *voucherBuilder) matchPartyLedger(ctx context.Context, tenantID uuid.UUI
 		}
 	}
 
-	// Fallback to normalized company name
-	name := seller.Name
-	if name != "" {
+	// 2. Try normalized name match against existing Tally ledgers
+	if seller.Name != "" {
+		normalizedName := normalize.CompanyName(seller.Name)
+		ledger, err := b.masterRepo.FindLedgerByNormalizedName(ctx, tenantID, normalizedName)
+		if err == nil && ledger != nil {
+			confidence["party_ledger"] = "normalized_name"
+			return ledger.Name // Use Tally's exact name, not our normalized version
+		}
+		// 3. Convention fallback — use normalized name
 		confidence["party_ledger"] = "convention"
-		return normalize.CompanyName(name)
+		return normalizedName
 	}
 
 	confidence["party_ledger"] = "convention"
