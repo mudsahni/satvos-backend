@@ -60,20 +60,45 @@ func (b *voucherBuilder) Build(ctx context.Context, tenantID uuid.UUID, doc *dom
 	// LLM parser returns DD-MM-YYYY per prompt instructions.
 	voucherDate := normalizeVoucherDate(inv.Invoice.InvoiceDate)
 
+	// 7. Determine voucher mode
+	var voucherMode string
+	switch {
+	case len(inventoryItems) > 0:
+		voucherMode = "item_invoice"
+	case inv.Totals.CGST == 0 && inv.Totals.SGST == 0 && inv.Totals.IGST == 0:
+		voucherMode = "journal"
+	default:
+		voucherMode = "accounting_invoice"
+	}
+
+	// 8. Build party details from seller
+	partyDetails := &domain.VoucherPartyDetail{
+		Name:      inv.Seller.Name,
+		Address:   inv.Seller.Address,
+		PAN:       inv.Seller.PAN,
+		GSTIN:     inv.Seller.GSTIN,
+		State:     inv.Seller.State,
+		StateCode: inv.Seller.StateCode,
+	}
+
 	remoteID := fmt.Sprintf("%s-%s", tenantID, doc.ID)
 
 	return &domain.VoucherDef{
-		DocumentID:      doc.ID,
-		VoucherType:     "Purchase",
-		VoucherDate:     voucherDate,
-		PartyLedger:     partyLedger,
-		PurchaseLedger:  purchaseLedger,
-		TaxEntries:      taxEntries,
-		InventoryItems:  inventoryItems,
-		TotalAmount:     inv.Totals.Total,
-		Narration:       narration,
-		RemoteID:        remoteID,
-		MatchConfidence: confidence,
+		DocumentID:          doc.ID,
+		VoucherType:         "Purchase",
+		VoucherDate:         voucherDate,
+		PartyLedger:         partyLedger,
+		PurchaseLedger:      purchaseLedger,
+		TaxEntries:          taxEntries,
+		InventoryItems:      inventoryItems,
+		TotalAmount:         inv.Totals.Total,
+		Narration:           narration,
+		RemoteID:            remoteID,
+		MatchConfidence:     confidence,
+		VoucherMode:         voucherMode,
+		SupplierInvoiceNo:   inv.Invoice.InvoiceNumber,
+		SupplierInvoiceDate: normalizeVoucherDate(inv.Invoice.InvoiceDate),
+		PartyDetails:        partyDetails,
 	}, nil
 }
 
@@ -356,6 +381,12 @@ func buildVoucherNarration(inv *invoice.GSTInvoice) string {
 	}
 	if inv.Invoice.InvoiceNumber != "" {
 		parts = append(parts, inv.Invoice.InvoiceNumber)
+	}
+	if inv.Invoice.InvoiceDate != "" {
+		parts = append(parts, "dt. "+inv.Invoice.InvoiceDate)
+	}
+	if len(inv.LineItems) > 0 && inv.LineItems[0].Description != "" {
+		parts = append(parts, inv.LineItems[0].Description)
 	}
 	if len(parts) == 0 {
 		return "Purchase"

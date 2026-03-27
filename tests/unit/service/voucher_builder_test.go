@@ -160,8 +160,22 @@ func TestVoucherBuilder_FullMatch(t *testing.T) {
 	assert.Equal(t, 5.0, vDef.InventoryItems[1].Quantity)
 	assert.Equal(t, "Pcs", vDef.InventoryItems[1].UOM)
 
-	// Narration
-	assert.Equal(t, "Acme Pvt. Ltd. - INV-2026-001", vDef.Narration)
+	// Narration (includes date and first line item)
+	assert.Equal(t, "Acme Pvt. Ltd. - INV-2026-001 - dt. 15/01/2026 - Widget A", vDef.Narration)
+
+	// VoucherMode — has inventory items, so item_invoice
+	assert.Equal(t, "item_invoice", vDef.VoucherMode)
+
+	// Supplier invoice reference
+	assert.Equal(t, "INV-2026-001", vDef.SupplierInvoiceNo)
+	assert.Equal(t, "2026-01-15", vDef.SupplierInvoiceDate)
+
+	// Party details
+	require.NotNil(t, vDef.PartyDetails)
+	assert.Equal(t, "Acme Pvt. Ltd.", vDef.PartyDetails.Name)
+	assert.Equal(t, "29AABCU9603R1ZM", vDef.PartyDetails.GSTIN)
+	assert.Equal(t, "Karnataka", vDef.PartyDetails.State)
+	assert.Equal(t, "29", vDef.PartyDetails.StateCode)
 
 	// RemoteID
 	assert.Contains(t, vDef.RemoteID, tenantID.String())
@@ -236,6 +250,9 @@ func TestVoucherBuilder_NoStockItem(t *testing.T) {
 	assert.Empty(t, vDef.InventoryItems)
 	assert.Equal(t, "no_stock_item", vDef.MatchConfidence["item_0"])
 	assert.Equal(t, "no_stock_item", vDef.MatchConfidence["item_1"])
+
+	// VoucherMode — has GST but no inventory items → accounting_invoice
+	assert.Equal(t, "accounting_invoice", vDef.VoucherMode)
 
 	masterRepo.AssertExpectations(t)
 }
@@ -430,6 +447,9 @@ func TestVoucherBuilder_NoLineItems(t *testing.T) {
 	require.Len(t, vDef.TaxEntries, 2)
 
 	assert.Equal(t, 5900.0, vDef.TotalAmount)
+
+	// VoucherMode — has GST, no line items → accounting_invoice
+	assert.Equal(t, "accounting_invoice", vDef.VoucherMode)
 
 	masterRepo.AssertExpectations(t)
 }
@@ -693,4 +713,7 @@ func TestVoucherBuilder_PartyNoGSTINNoName(t *testing.T) {
 
 	assert.Equal(t, "Unknown Party", vDef.PartyLedger)
 	assert.Equal(t, "convention", vDef.MatchConfidence["party_ledger"])
+
+	// VoucherMode — no GST amounts → journal
+	assert.Equal(t, "journal", vDef.VoucherMode)
 }
