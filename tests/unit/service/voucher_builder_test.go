@@ -164,7 +164,7 @@ func TestVoucherBuilder_FullMatch(t *testing.T) {
 	assert.Equal(t, "Acme Pvt. Ltd. - INV-2026-001 - dt. 15/01/2026 - Widget A", vDef.Narration)
 
 	// VoucherMode — has inventory items, so item_invoice
-	assert.Equal(t, "item_invoice", vDef.VoucherMode)
+	assert.Equal(t, domain.VoucherModeItemInvoice, vDef.VoucherMode)
 
 	// Supplier invoice reference
 	assert.Equal(t, "INV-2026-001", vDef.SupplierInvoiceNo)
@@ -197,7 +197,7 @@ func TestVoucherBuilder_PartyGSTINNotFound(t *testing.T) {
 		Return(nil, domain.ErrNotFound)
 	// Normalized name not found either
 	masterRepo.On("FindLedgerByNormalizedName", mock.Anything, tenantID, "ACME PVT LTD").
-		Return(nil, domain.ErrNotFound)
+		Return(nil, nil)
 
 	// Other lookups
 	masterRepo.On("FindPurchaseLedger", mock.Anything, tenantID).
@@ -235,7 +235,7 @@ func TestVoucherBuilder_NoStockItem(t *testing.T) {
 	masterRepo.On("FindLedgerByGSTIN", mock.Anything, tenantID, mock.AnythingOfType("string")).
 		Return(nil, domain.ErrNotFound)
 	masterRepo.On("FindLedgerByNormalizedName", mock.Anything, tenantID, mock.AnythingOfType("string")).
-		Return(nil, domain.ErrNotFound)
+		Return(nil, nil)
 	masterRepo.On("FindPurchaseLedger", mock.Anything, tenantID).
 		Return(nil, domain.ErrNotFound)
 	masterRepo.On("FindTaxLedger", mock.Anything, tenantID, mock.AnythingOfType("string"), mock.AnythingOfType("float64")).
@@ -257,7 +257,7 @@ func TestVoucherBuilder_NoStockItem(t *testing.T) {
 	assert.Equal(t, "no_stock_item", vDef.MatchConfidence["item_1"])
 
 	// VoucherMode — has GST but no inventory items → accounting_invoice
-	assert.Equal(t, "accounting_invoice", vDef.VoucherMode)
+	assert.Equal(t, domain.VoucherModeAccountingInvoice, vDef.VoucherMode)
 
 	masterRepo.AssertExpectations(t)
 }
@@ -371,7 +371,7 @@ func TestVoucherBuilder_InterstateTax(t *testing.T) {
 	masterRepo.On("FindLedgerByGSTIN", mock.Anything, tenantID, "27AABCI1234R1ZM").
 		Return(nil, domain.ErrNotFound)
 	masterRepo.On("FindLedgerByNormalizedName", mock.Anything, tenantID, "INTERSTATE SUPPLIER").
-		Return(nil, domain.ErrNotFound)
+		Return(nil, nil)
 
 	// Purchase
 	masterRepo.On("FindPurchaseLedger", mock.Anything, tenantID).
@@ -439,7 +439,7 @@ func TestVoucherBuilder_NoLineItems(t *testing.T) {
 	masterRepo.On("FindLedgerByGSTIN", mock.Anything, tenantID, "29AABCS0001R1Z1").
 		Return(nil, domain.ErrNotFound)
 	masterRepo.On("FindLedgerByNormalizedName", mock.Anything, tenantID, "SIMPLE VENDOR").
-		Return(nil, domain.ErrNotFound)
+		Return(nil, nil)
 	masterRepo.On("FindPurchaseLedger", mock.Anything, tenantID).
 		Return(nil, domain.ErrNotFound)
 	masterRepo.On("FindTaxLedger", mock.Anything, tenantID, mock.AnythingOfType("string"), mock.AnythingOfType("float64")).
@@ -458,7 +458,7 @@ func TestVoucherBuilder_NoLineItems(t *testing.T) {
 	assert.Equal(t, 5900.0, vDef.TotalAmount)
 
 	// VoucherMode — has GST, no line items → accounting_invoice
-	assert.Equal(t, "accounting_invoice", vDef.VoucherMode)
+	assert.Equal(t, domain.VoucherModeAccountingInvoice, vDef.VoucherMode)
 
 	masterRepo.AssertExpectations(t)
 }
@@ -578,7 +578,7 @@ func TestVoucherBuilder_ZeroQuantityDefaultsToOne(t *testing.T) {
 	masterRepo.On("FindLedgerByGSTIN", mock.Anything, tenantID, mock.AnythingOfType("string")).
 		Return(nil, domain.ErrNotFound).Maybe()
 	masterRepo.On("FindLedgerByNormalizedName", mock.Anything, tenantID, "VENDOR X").
-		Return(nil, domain.ErrNotFound)
+		Return(nil, nil)
 	masterRepo.On("FindPurchaseLedger", mock.Anything, tenantID).
 		Return(nil, domain.ErrNotFound)
 	// Stock item NOT found — no inventory entry created
@@ -629,7 +629,7 @@ func TestVoucherBuilder_ZeroQuantityDefaultsToOne_WithStockItem(t *testing.T) {
 	masterRepo.On("FindLedgerByGSTIN", mock.Anything, tenantID, mock.AnythingOfType("string")).
 		Return(nil, domain.ErrNotFound).Maybe()
 	masterRepo.On("FindLedgerByNormalizedName", mock.Anything, tenantID, "VENDOR X").
-		Return(nil, domain.ErrNotFound)
+		Return(nil, nil)
 	masterRepo.On("FindPurchaseLedger", mock.Anything, tenantID).
 		Return(nil, domain.ErrNotFound)
 	masterRepo.On("FindStockItemByHSN", mock.Anything, tenantID, "84713010").
@@ -683,7 +683,7 @@ func TestVoucherBuilder_EmptyUnitDefaultsToNos(t *testing.T) {
 	masterRepo.On("FindLedgerByGSTIN", mock.Anything, tenantID, mock.AnythingOfType("string")).
 		Return(nil, domain.ErrNotFound).Maybe()
 	masterRepo.On("FindLedgerByNormalizedName", mock.Anything, tenantID, "VENDOR Y").
-		Return(nil, domain.ErrNotFound)
+		Return(nil, nil)
 	masterRepo.On("FindPurchaseLedger", mock.Anything, tenantID).
 		Return(nil, domain.ErrNotFound)
 	// Stock item found this time — so inventory entry is created
@@ -779,5 +779,72 @@ func TestVoucherBuilder_PartyNoGSTINNoName(t *testing.T) {
 	assert.Equal(t, "convention", vDef.MatchConfidence["party_ledger"])
 
 	// VoucherMode — no GST amounts → journal
-	assert.Equal(t, "journal", vDef.VoucherMode)
+	assert.Equal(t, domain.VoucherModeJournal, vDef.VoucherMode)
+
+	// PartyDetails — empty seller should yield nil PartyDetails
+	assert.Nil(t, vDef.PartyDetails)
+}
+
+func TestVoucherBuilder_BuildWithOverridesPreservesNewFields(t *testing.T) {
+	masterRepo := new(mocks.MockTallyMasterRepo)
+	builder := service.NewVoucherBuilderService(masterRepo)
+
+	inv := sampleInvoice()
+	doc := buildTestDocument(t, inv)
+	tenantID := doc.TenantID
+
+	// Party match by GSTIN
+	masterRepo.On("FindLedgerByGSTIN", mock.Anything, tenantID, "29AABCU9603R1ZM").
+		Return(&domain.TallyLedger{Name: "Acme Pvt Ltd"}, nil)
+
+	// Purchase ledger found
+	masterRepo.On("FindPurchaseLedger", mock.Anything, tenantID).
+		Return(&domain.TallyLedger{Name: "Purchase - Trading"}, nil)
+
+	// Tax ledgers
+	masterRepo.On("FindTaxLedger", mock.Anything, tenantID, "CGST", mock.AnythingOfType("float64")).
+		Return(&domain.TallyLedger{Name: "Input CGST @9%"}, nil)
+	masterRepo.On("FindTaxLedger", mock.Anything, tenantID, "SGST", mock.AnythingOfType("float64")).
+		Return(&domain.TallyLedger{Name: "Input SGST @9%"}, nil)
+
+	// Stock items
+	masterRepo.On("FindStockItemByHSN", mock.Anything, tenantID, "84713010").
+		Return(&domain.TallyStockItem{Name: "Laptop", HSNCode: "84713010"}, nil)
+	masterRepo.On("FindStockItemByHSN", mock.Anything, tenantID, "84714100").
+		Return(&domain.TallyStockItem{Name: "Desktop", HSNCode: "84714100"}, nil)
+
+	// UOM
+	masterRepo.On("FindUnitBySymbol", mock.Anything, tenantID, mock.AnythingOfType("string")).
+		Return(&domain.TallyUnit{Symbol: "Nos"}, nil)
+
+	// Default godown
+	masterRepo.On("GetDefaultGodown", mock.Anything, tenantID).
+		Return(&domain.TallyGodown{Name: "Main Godown"}, nil)
+
+	// Apply an override to party ledger — new fields should still be preserved
+	overrideLedger := "Custom Party Ledger"
+	overrides := &domain.VoucherOverrides{
+		PartyLedger: &overrideLedger,
+	}
+
+	vDef, err := builder.BuildWithOverrides(context.Background(), tenantID, doc, overrides)
+	require.NoError(t, err)
+	require.NotNil(t, vDef)
+
+	// Override applied
+	assert.Equal(t, "Custom Party Ledger", vDef.PartyLedger)
+	assert.Equal(t, "manual_override", vDef.MatchConfidence["party_ledger"])
+
+	// New fields preserved from underlying Build
+	assert.Equal(t, domain.VoucherModeItemInvoice, vDef.VoucherMode)
+	assert.Equal(t, "INV-2026-001", vDef.SupplierInvoiceNo)
+	assert.Equal(t, "2026-01-15", vDef.SupplierInvoiceDate)
+
+	require.NotNil(t, vDef.PartyDetails)
+	assert.Equal(t, "Acme Pvt. Ltd.", vDef.PartyDetails.Name)
+	assert.Equal(t, "29AABCU9603R1ZM", vDef.PartyDetails.GSTIN)
+	assert.Equal(t, "Karnataka", vDef.PartyDetails.State)
+	assert.Equal(t, "29", vDef.PartyDetails.StateCode)
+
+	masterRepo.AssertExpectations(t)
 }

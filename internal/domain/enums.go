@@ -265,6 +265,15 @@ const (
 	AuditVoucherOverrideUpdated      AuditAction = "document.voucher_override_updated"
 )
 
+// VoucherMode defines how the voucher is structured when sent to Tally.
+type VoucherMode = string
+
+const (
+	VoucherModeAccountingInvoice VoucherMode = "accounting_invoice"
+	VoucherModeItemInvoice       VoucherMode = "item_invoice"
+	VoucherModeJournal           VoucherMode = "journal"
+)
+
 // SyncReviewStatus represents the sync review gate status of a document.
 type SyncReviewStatus string
 

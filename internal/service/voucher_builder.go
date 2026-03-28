@@ -60,25 +60,33 @@ func (b *voucherBuilder) Build(ctx context.Context, tenantID uuid.UUID, doc *dom
 	// LLM parser returns DD-MM-YYYY per prompt instructions.
 	voucherDate := normalizeVoucherDate(inv.Invoice.InvoiceDate)
 
-	// 7. Determine voucher mode
+	// 7. Determine voucher mode.
+	// Mode depends on matched inventory items (not source line items), so the
+	// same invoice may receive different modes for different tenants — a tenant
+	// with matching stock items gets item_invoice while one without gets
+	// accounting_invoice.
 	var voucherMode string
 	switch {
 	case len(inventoryItems) > 0:
-		voucherMode = "item_invoice"
+		voucherMode = domain.VoucherModeItemInvoice
 	case inv.Totals.CGST == 0 && inv.Totals.SGST == 0 && inv.Totals.IGST == 0:
-		voucherMode = "journal"
+		voucherMode = domain.VoucherModeJournal
 	default:
-		voucherMode = "accounting_invoice"
+		voucherMode = domain.VoucherModeAccountingInvoice
 	}
 
-	// 8. Build party details from seller
-	partyDetails := &domain.VoucherPartyDetail{
-		Name:      inv.Seller.Name,
-		Address:   inv.Seller.Address,
-		PAN:       inv.Seller.PAN,
-		GSTIN:     inv.Seller.GSTIN,
-		State:     inv.Seller.State,
-		StateCode: inv.Seller.StateCode,
+	// 8. Build party details from seller — only when at least one
+	// meaningful identifier (Name, GSTIN, PAN) is present.
+	var partyDetails *domain.VoucherPartyDetail
+	if inv.Seller.Name != "" || inv.Seller.GSTIN != "" || inv.Seller.PAN != "" {
+		partyDetails = &domain.VoucherPartyDetail{
+			Name:      inv.Seller.Name,
+			Address:   inv.Seller.Address,
+			PAN:       inv.Seller.PAN,
+			GSTIN:     inv.Seller.GSTIN,
+			State:     inv.Seller.State,
+			StateCode: inv.Seller.StateCode,
+		}
 	}
 
 	remoteID := fmt.Sprintf("%s-%s", tenantID, doc.ID)
@@ -97,7 +105,7 @@ func (b *voucherBuilder) Build(ctx context.Context, tenantID uuid.UUID, doc *dom
 		MatchConfidence:     confidence,
 		VoucherMode:         voucherMode,
 		SupplierInvoiceNo:   inv.Invoice.InvoiceNumber,
-		SupplierInvoiceDate: normalizeVoucherDate(inv.Invoice.InvoiceDate),
+		SupplierInvoiceDate: voucherDate,
 		PartyDetails:        partyDetails,
 	}, nil
 }
@@ -390,7 +398,7 @@ func buildVoucherNarration(inv *invoice.GSTInvoice) string {
 		parts = append(parts, inv.Invoice.InvoiceNumber)
 	}
 	if inv.Invoice.InvoiceDate != "" {
-		parts = append(parts, "dt. "+inv.Invoice.InvoiceDate)
+		parts = append(parts, "dt. "+formatDisplayDate(inv.Invoice.InvoiceDate))
 	}
 	if len(inv.LineItems) > 0 && inv.LineItems[0].Description != "" {
 		parts = append(parts, inv.LineItems[0].Description)
@@ -399,4 +407,29 @@ func buildVoucherNarration(inv *invoice.GSTInvoice) string {
 		return "Purchase"
 	}
 	return strings.Join(parts, " - ")
+}
+
+// formatDisplayDate normalizes an invoice date to DD/MM/YYYY display format.
+// Handles DD-MM-YYYY, DD/MM/YYYY, and YYYY-MM-DD inputs.
+func formatDisplayDate(dateStr string) string {
+	dateStr = strings.TrimSpace(dateStr)
+	if dateStr == "" {
+		return ""
+	}
+
+	// Replace dashes with slashes for uniform handling
+	dateStr = strings.ReplaceAll(dateStr, "-", "/")
+
+	parts := strings.Split(dateStr, "/")
+	if len(parts) != 3 {
+		return dateStr
+	}
+
+	// If first part is 4 digits (YYYY/MM/DD), rearrange to DD/MM/YYYY
+	if len(parts[0]) == 4 {
+		return parts[2] + "/" + parts[1] + "/" + parts[0]
+	}
+
+	// Already DD/MM/YYYY
+	return parts[0] + "/" + parts[1] + "/" + parts[2]
 }
