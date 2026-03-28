@@ -520,7 +520,21 @@ type VoucherDef struct {
 	TotalAmount     float64              `json:"total_amount"`
 	Narration       string               `json:"narration"`
 	RemoteID        string               `json:"remote_id"`
-	MatchConfidence map[string]string    `json:"match_confidence"`
+	MatchConfidence     map[string]string    `json:"match_confidence"`
+	VoucherMode         string               `json:"voucher_mode"`          // "accounting_invoice" | "item_invoice" | "journal"
+	SupplierInvoiceNo   string               `json:"supplier_invoice_no"`   // seller's invoice number
+	SupplierInvoiceDate string               `json:"supplier_invoice_date"` // YYYY-MM-DD
+	PartyDetails        *VoucherPartyDetail  `json:"party_details,omitempty"`
+}
+
+// VoucherPartyDetail holds rich party information for ledger creation in Tally.
+type VoucherPartyDetail struct {
+	Name      string `json:"name"`
+	Address   string `json:"address"`
+	PAN       string `json:"pan"`
+	GSTIN     string `json:"gstin"`
+	State     string `json:"state"`
+	StateCode string `json:"state_code"`
 }
 
 // VoucherDefTaxEntry is a tax ledger entry within a VoucherDef.

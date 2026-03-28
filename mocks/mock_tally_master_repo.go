@@ -43,6 +43,14 @@ func (m *MockTallyMasterRepo) FindLedgerByGSTIN(ctx context.Context, tenantID uu
 	return args.Get(0).(*domain.TallyLedger), args.Error(1)
 }
 
+func (m *MockTallyMasterRepo) FindLedgerByNormalizedName(ctx context.Context, tenantID uuid.UUID, normalizedName string) (*domain.TallyLedger, error) {
+	args := m.Called(ctx, tenantID, normalizedName)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*domain.TallyLedger), args.Error(1)
+}
+
 func (m *MockTallyMasterRepo) FindTaxLedger(ctx context.Context, tenantID uuid.UUID, taxType string, taxRate float64) (*domain.TallyLedger, error) {
 	args := m.Called(ctx, tenantID, taxType, taxRate)
 	if args.Get(0) == nil {

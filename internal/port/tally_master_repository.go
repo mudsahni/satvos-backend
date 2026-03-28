@@ -15,6 +15,7 @@ type TallyMasterRepository interface {
 	ListLedgers(ctx context.Context, tenantID uuid.UUID) ([]domain.TallyLedger, error)
 	ListLedgersPaginated(ctx context.Context, tenantID uuid.UUID, parentGroup, taxType, search string, offset, limit int) ([]domain.TallyLedger, int, error)
 	FindLedgerByGSTIN(ctx context.Context, tenantID uuid.UUID, gstin string) (*domain.TallyLedger, error)
+	FindLedgerByNormalizedName(ctx context.Context, tenantID uuid.UUID, normalizedName string) (*domain.TallyLedger, error)
 	FindTaxLedger(ctx context.Context, tenantID uuid.UUID, taxType string, taxRate float64) (*domain.TallyLedger, error)
 	FindPurchaseLedger(ctx context.Context, tenantID uuid.UUID) (*domain.TallyLedger, error)
 

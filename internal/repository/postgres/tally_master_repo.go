@@ -11,6 +11,7 @@ import (
 	"github.com/jmoiron/sqlx"
 
 	"satvos/internal/domain"
+	"satvos/internal/normalize"
 	"satvos/internal/port"
 )
 
@@ -125,6 +126,25 @@ func (r *tallyMasterRepo) FindLedgerByGSTIN(ctx context.Context, tenantID uuid.U
 		return nil, fmt.Errorf("finding ledger by GSTIN: %w", err)
 	}
 	return &ledger, nil
+}
+
+// FindLedgerByNormalizedName performs a full table scan of Sundry Creditors ledgers
+// and compares each name after normalization. This is O(n) per call and is invoked
+// once per voucher build. For production scale, the proper fix is to add a
+// normalized_name column (populated on upsert) and query it directly.
+func (r *tallyMasterRepo) FindLedgerByNormalizedName(ctx context.Context, tenantID uuid.UUID, normalizedName string) (*domain.TallyLedger, error) {
+	var ledgers []domain.TallyLedger
+	query := `SELECT id, tenant_id, name, parent_group, gstin, state, tax_type, tax_rate, is_revenue, synced_at
+              FROM tally_ledgers WHERE tenant_id = $1 AND parent_group = 'Sundry Creditors'`
+	if err := r.db.SelectContext(ctx, &ledgers, query, tenantID); err != nil {
+		return nil, fmt.Errorf("finding ledgers for normalized name match: %w", err)
+	}
+	for i := range ledgers {
+		if normalize.CompanyName(ledgers[i].Name) == normalizedName {
+			return &ledgers[i], nil
+		}
+	}
+	return nil, nil
 }
 
 func (r *tallyMasterRepo) FindTaxLedger(ctx context.Context, tenantID uuid.UUID, taxType string, taxRate float64) (*domain.TallyLedger, error) {

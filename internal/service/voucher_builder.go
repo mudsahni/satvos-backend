@@ -60,20 +60,53 @@ func (b *voucherBuilder) Build(ctx context.Context, tenantID uuid.UUID, doc *dom
 	// LLM parser returns DD-MM-YYYY per prompt instructions.
 	voucherDate := normalizeVoucherDate(inv.Invoice.InvoiceDate)
 
+	// 7. Determine voucher mode.
+	// Mode depends on matched inventory items (not source line items), so the
+	// same invoice may receive different modes for different tenants — a tenant
+	// with matching stock items gets item_invoice while one without gets
+	// accounting_invoice.
+	var voucherMode string
+	switch {
+	case len(inventoryItems) > 0:
+		voucherMode = domain.VoucherModeItemInvoice
+	case inv.Totals.CGST == 0 && inv.Totals.SGST == 0 && inv.Totals.IGST == 0:
+		voucherMode = domain.VoucherModeJournal
+	default:
+		voucherMode = domain.VoucherModeAccountingInvoice
+	}
+
+	// 8. Build party details from seller — only when at least one
+	// meaningful identifier (Name, GSTIN, PAN) is present.
+	var partyDetails *domain.VoucherPartyDetail
+	if inv.Seller.Name != "" || inv.Seller.GSTIN != "" || inv.Seller.PAN != "" {
+		partyDetails = &domain.VoucherPartyDetail{
+			Name:      inv.Seller.Name,
+			Address:   inv.Seller.Address,
+			PAN:       inv.Seller.PAN,
+			GSTIN:     inv.Seller.GSTIN,
+			State:     inv.Seller.State,
+			StateCode: inv.Seller.StateCode,
+		}
+	}
+
 	remoteID := fmt.Sprintf("%s-%s", tenantID, doc.ID)
 
 	return &domain.VoucherDef{
-		DocumentID:      doc.ID,
-		VoucherType:     "Purchase",
-		VoucherDate:     voucherDate,
-		PartyLedger:     partyLedger,
-		PurchaseLedger:  purchaseLedger,
-		TaxEntries:      taxEntries,
-		InventoryItems:  inventoryItems,
-		TotalAmount:     inv.Totals.Total,
-		Narration:       narration,
-		RemoteID:        remoteID,
-		MatchConfidence: confidence,
+		DocumentID:          doc.ID,
+		VoucherType:         "Purchase",
+		VoucherDate:         voucherDate,
+		PartyLedger:         partyLedger,
+		PurchaseLedger:      purchaseLedger,
+		TaxEntries:          taxEntries,
+		InventoryItems:      inventoryItems,
+		TotalAmount:         inv.Totals.Total,
+		Narration:           narration,
+		RemoteID:            remoteID,
+		MatchConfidence:     confidence,
+		VoucherMode:         voucherMode,
+		SupplierInvoiceNo:   inv.Invoice.InvoiceNumber,
+		SupplierInvoiceDate: voucherDate,
+		PartyDetails:        partyDetails,
 	}, nil
 }
 
@@ -120,8 +153,9 @@ func (b *voucherBuilder) BuildWithOverrides(ctx context.Context, tenantID uuid.U
 	return vDef, nil
 }
 
-// matchPartyLedger finds the party ledger by GSTIN, falling back to normalized name.
+// matchPartyLedger finds the party ledger by GSTIN, then normalized name, falling back to convention.
 func (b *voucherBuilder) matchPartyLedger(ctx context.Context, tenantID uuid.UUID, seller *invoice.Party, confidence map[string]string) string {
+	// 1. Try exact GSTIN match
 	if seller.GSTIN != "" {
 		ledger, err := b.masterRepo.FindLedgerByGSTIN(ctx, tenantID, seller.GSTIN)
 		if err == nil && ledger != nil {
@@ -130,11 +164,17 @@ func (b *voucherBuilder) matchPartyLedger(ctx context.Context, tenantID uuid.UUI
 		}
 	}
 
-	// Fallback to normalized company name
-	name := seller.Name
-	if name != "" {
+	// 2. Try normalized name match against existing Tally ledgers
+	if seller.Name != "" {
+		normalizedName := normalize.CompanyName(seller.Name)
+		ledger, err := b.masterRepo.FindLedgerByNormalizedName(ctx, tenantID, normalizedName)
+		if err == nil && ledger != nil {
+			confidence["party_ledger"] = "normalized_name"
+			return ledger.Name // Use Tally's exact name, not our normalized version
+		}
+		// 3. Convention fallback — use normalized name
 		confidence["party_ledger"] = "convention"
-		return normalize.CompanyName(name)
+		return normalizedName
 	}
 
 	confidence["party_ledger"] = "convention"
@@ -357,8 +397,39 @@ func buildVoucherNarration(inv *invoice.GSTInvoice) string {
 	if inv.Invoice.InvoiceNumber != "" {
 		parts = append(parts, inv.Invoice.InvoiceNumber)
 	}
+	if inv.Invoice.InvoiceDate != "" {
+		parts = append(parts, "dt. "+formatDisplayDate(inv.Invoice.InvoiceDate))
+	}
+	if len(inv.LineItems) > 0 && inv.LineItems[0].Description != "" {
+		parts = append(parts, inv.LineItems[0].Description)
+	}
 	if len(parts) == 0 {
 		return "Purchase"
 	}
 	return strings.Join(parts, " - ")
+}
+
+// formatDisplayDate normalizes an invoice date to DD/MM/YYYY display format.
+// Handles DD-MM-YYYY, DD/MM/YYYY, and YYYY-MM-DD inputs.
+func formatDisplayDate(dateStr string) string {
+	dateStr = strings.TrimSpace(dateStr)
+	if dateStr == "" {
+		return ""
+	}
+
+	// Replace dashes with slashes for uniform handling
+	dateStr = strings.ReplaceAll(dateStr, "-", "/")
+
+	parts := strings.Split(dateStr, "/")
+	if len(parts) != 3 {
+		return dateStr
+	}
+
+	// If first part is 4 digits (YYYY/MM/DD), rearrange to DD/MM/YYYY
+	if len(parts[0]) == 4 {
+		return parts[2] + "/" + parts[1] + "/" + parts[0]
+	}
+
+	// Already DD/MM/YYYY
+	return parts[0] + "/" + parts[1] + "/" + parts[2]
 }
