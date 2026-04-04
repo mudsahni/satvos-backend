@@ -337,7 +337,7 @@ func (b *voucherBuilder) matchUOM(ctx context.Context, tenantID uuid.UUID, unit 
 // Rounds to 2 decimal places to avoid floating point noise (e.g., 18.00003 → 18.00).
 // Then snaps to standard GST rates if within 0.1% tolerance.
 func calculateTaxRate(taxAmount, taxableAmount float64) float64 {
-	if taxableAmount == 0 {
+	if math.Abs(taxableAmount) < 0.01 {
 		return 0
 	}
 	raw := (taxAmount / taxableAmount) * 100
