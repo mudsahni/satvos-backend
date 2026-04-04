@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
@@ -56,13 +57,15 @@ func (b *voucherBuilder) Build(ctx context.Context, tenantID uuid.UUID, doc *dom
 
 	// 5. Build narration
 	narration := buildVoucherNarration(&inv)
-	if len(narration) > 500 {
-		narration = narration[:497] + "..."
+	if utf8.RuneCountInString(narration) > 500 {
+		runes := []rune(narration)
+		narration = string(runes[:497]) + "..."
 	}
 
 	// 6. Normalize voucher date to YYYY-MM-DD (connector expects this format).
 	// LLM parser returns DD-MM-YYYY per prompt instructions.
-	voucherDate := clampVoucherDate(normalizeVoucherDate(inv.Invoice.InvoiceDate))
+	now := time.Now()
+	voucherDate := clampVoucherDate(normalizeVoucherDate(inv.Invoice.InvoiceDate, now), now)
 
 	// 7. Determine voucher mode.
 	// Mode depends on matched inventory items (not source line items), so the
@@ -152,7 +155,12 @@ func (b *voucherBuilder) BuildWithOverrides(ctx context.Context, tenantID uuid.U
 		}
 	}
 	if overrides.VoucherMode != nil {
-		vDef.VoucherMode = *overrides.VoucherMode
+		switch *overrides.VoucherMode {
+		case domain.VoucherModeAccountingInvoice, domain.VoucherModeItemInvoice, domain.VoucherModeJournal:
+			vDef.VoucherMode = *overrides.VoucherMode
+		default:
+			return nil, fmt.Errorf("invalid voucher mode override: %q", *overrides.VoucherMode)
+		}
 	}
 
 	return vDef, nil
@@ -365,11 +373,12 @@ func formatRate(rate float64) string {
 
 // normalizeVoucherDate converts a date string to YYYY-MM-DD format.
 // Handles DD-MM-YYYY, DD/MM/YYYY, and passes through YYYY-MM-DD as-is.
-// Returns today's date if the input is empty or unparseable.
-func normalizeVoucherDate(dateStr string) string {
+// Returns now formatted as YYYY-MM-DD if the input is empty or unparseable.
+func normalizeVoucherDate(dateStr string, now time.Time) string {
 	dateStr = strings.TrimSpace(dateStr)
+	today := now.Format("2006-01-02")
 	if dateStr == "" {
-		return todayYMD()
+		return today
 	}
 
 	// Replace slashes with dashes for uniform parsing
@@ -377,7 +386,7 @@ func normalizeVoucherDate(dateStr string) string {
 
 	parts := strings.Split(dateStr, "-")
 	if len(parts) != 3 {
-		return todayYMD()
+		return today
 	}
 
 	// If first part is 4 digits, it's already YYYY-MM-DD
@@ -385,7 +394,7 @@ func normalizeVoucherDate(dateStr string) string {
 		if isValidDate(parts[0], parts[1], parts[2]) {
 			return dateStr
 		}
-		return todayYMD()
+		return today
 	}
 
 	// Otherwise assume DD-MM-YYYY → YYYY-MM-DD
@@ -394,14 +403,10 @@ func normalizeVoucherDate(dateStr string) string {
 		if isValidDate(parts[2], parts[1], parts[0]) {
 			return result
 		}
-		return todayYMD()
+		return today
 	}
 
-	return todayYMD()
-}
-
-func todayYMD() string {
-	return time.Now().Format("2006-01-02")
+	return today
 }
 
 func isValidDate(year, month, day string) bool {
@@ -409,20 +414,18 @@ func isValidDate(year, month, day string) bool {
 	return err == nil
 }
 
-// clampVoucherDate returns today's date if the parsed date is more than 18 months
+// clampVoucherDate returns now's date if the parsed date is more than 18 months
 // in the past or in the future (beyond tomorrow). This prevents out-of-range Tally errors.
-func clampVoucherDate(dateStr string) string {
+func clampVoucherDate(dateStr string, now time.Time) string {
 	parsed, err := time.Parse("2006-01-02", dateStr)
 	if err != nil {
-		return todayYMD()
+		return now.Format("2006-01-02")
 	}
-	cutoff := time.Now().AddDate(0, -18, 0)
-	if parsed.Before(cutoff) {
-		return todayYMD()
+	if parsed.Before(now.AddDate(0, -18, 0)) {
+		return now.Format("2006-01-02")
 	}
-	tomorrow := time.Now().AddDate(0, 0, 1)
-	if parsed.After(tomorrow) {
-		return todayYMD()
+	if parsed.After(now.AddDate(0, 0, 1)) {
+		return now.Format("2006-01-02")
 	}
 	return dateStr
 }
