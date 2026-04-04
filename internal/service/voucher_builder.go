@@ -59,7 +59,7 @@ func (b *voucherBuilder) Build(ctx context.Context, tenantID uuid.UUID, doc *dom
 
 	// 6. Normalize voucher date to YYYY-MM-DD (connector expects this format).
 	// LLM parser returns DD-MM-YYYY per prompt instructions.
-	voucherDate := normalizeVoucherDate(inv.Invoice.InvoiceDate)
+	voucherDate := clampVoucherDate(normalizeVoucherDate(inv.Invoice.InvoiceDate))
 
 	// 7. Determine voucher mode.
 	// Mode depends on matched inventory items (not source line items), so the
@@ -403,6 +403,24 @@ func todayYMD() string {
 func isValidDate(year, month, day string) bool {
 	_, err := time.Parse("2006-01-02", year+"-"+month+"-"+day)
 	return err == nil
+}
+
+// clampVoucherDate returns today's date if the parsed date is more than 18 months
+// in the past or in the future (beyond tomorrow). This prevents out-of-range Tally errors.
+func clampVoucherDate(dateStr string) string {
+	parsed, err := time.Parse("2006-01-02", dateStr)
+	if err != nil {
+		return todayYMD()
+	}
+	cutoff := time.Now().AddDate(0, -18, 0)
+	if parsed.Before(cutoff) {
+		return todayYMD()
+	}
+	tomorrow := time.Now().AddDate(0, 0, 1)
+	if parsed.After(tomorrow) {
+		return todayYMD()
+	}
+	return dateStr
 }
 
 // buildVoucherNarration builds a narration string for the voucher.
