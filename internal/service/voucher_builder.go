@@ -70,8 +70,6 @@ func (b *voucherBuilder) Build(ctx context.Context, tenantID uuid.UUID, doc *dom
 	switch {
 	case len(inventoryItems) > 0:
 		voucherMode = domain.VoucherModeItemInvoice
-	case inv.Totals.CGST == 0 && inv.Totals.SGST == 0 && inv.Totals.IGST == 0:
-		voucherMode = domain.VoucherModeJournal
 	default:
 		voucherMode = domain.VoucherModeAccountingInvoice
 	}
@@ -149,6 +147,9 @@ func (b *voucherBuilder) BuildWithOverrides(ctx context.Context, tenantID uuid.U
 				break
 			}
 		}
+	}
+	if overrides.VoucherMode != nil {
+		vDef.VoucherMode = *overrides.VoucherMode
 	}
 
 	return vDef, nil

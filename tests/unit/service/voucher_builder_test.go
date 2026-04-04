@@ -779,8 +779,8 @@ func TestVoucherBuilder_PartyNoGSTINNoName(t *testing.T) {
 	assert.Equal(t, "Unknown Party", vDef.PartyLedger)
 	assert.Equal(t, "convention", vDef.MatchConfidence["party_ledger"])
 
-	// VoucherMode — no GST amounts → journal
-	assert.Equal(t, domain.VoucherModeJournal, vDef.VoucherMode)
+	// VoucherMode — no inventory items → accounting_invoice (journal only via explicit override)
+	assert.Equal(t, domain.VoucherModeAccountingInvoice, vDef.VoucherMode)
 
 	// PartyDetails — empty seller should yield nil PartyDetails
 	assert.Nil(t, vDef.PartyDetails)

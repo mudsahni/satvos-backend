@@ -560,4 +560,5 @@ type VoucherOverrides struct {
 	PurchaseLedger *string           `json:"purchase_ledger,omitempty"`
 	TaxOverrides   map[string]string `json:"tax_overrides,omitempty"`  // rate → ledger name
 	ItemOverrides  map[string]string `json:"item_overrides,omitempty"` // item name → stock item name
+	VoucherMode    *string           `json:"voucher_mode,omitempty"`
 }
