@@ -3,6 +3,7 @@ package service_test
 import (
 	"context"
 	"encoding/json"
+	"regexp"
 	"testing"
 
 	"github.com/google/uuid"
@@ -847,4 +848,88 @@ func TestVoucherBuilder_BuildWithOverridesPreservesNewFields(t *testing.T) {
 	assert.Equal(t, "29", vDef.PartyDetails.StateCode)
 
 	masterRepo.AssertExpectations(t)
+}
+
+func TestVoucherBuilder_EmptyDate(t *testing.T) {
+	masterRepo := new(mocks.MockTallyMasterRepo)
+	builder := service.NewVoucherBuilderService(masterRepo)
+
+	inv := &invoice.GSTInvoice{
+		Invoice: invoice.InvoiceHeader{
+			InvoiceNumber: "INV-EMPTY-DATE",
+			InvoiceDate:   "", // empty date
+		},
+		Seller: invoice.Party{
+			Name: "Some Vendor",
+		},
+		Totals: invoice.Totals{
+			TaxableAmount: 1000,
+			CGST:          90,
+			SGST:          90,
+			Total:         1180,
+		},
+	}
+
+	doc := buildTestDocument(t, inv)
+	tenantID := doc.TenantID
+
+	masterRepo.On("FindLedgerByGSTIN", mock.Anything, tenantID, mock.AnythingOfType("string")).
+		Return(nil, domain.ErrNotFound).Maybe()
+	masterRepo.On("FindLedgerByNormalizedName", mock.Anything, tenantID, mock.AnythingOfType("string")).
+		Return(nil, nil).Maybe()
+	masterRepo.On("FindPurchaseLedger", mock.Anything, tenantID).
+		Return(nil, domain.ErrNotFound)
+	masterRepo.On("FindTaxLedger", mock.Anything, tenantID, mock.AnythingOfType("string"), mock.AnythingOfType("float64")).
+		Return(nil, domain.ErrNotFound)
+
+	vDef, err := builder.Build(context.Background(), tenantID, doc)
+	require.NoError(t, err)
+	require.NotNil(t, vDef)
+
+	// Empty date should fall back to today's date in YYYY-MM-DD format
+	datePattern := regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
+	assert.Regexp(t, datePattern, vDef.VoucherDate)
+	assert.NotEmpty(t, vDef.VoucherDate)
+}
+
+func TestVoucherBuilder_GarbageDate(t *testing.T) {
+	masterRepo := new(mocks.MockTallyMasterRepo)
+	builder := service.NewVoucherBuilderService(masterRepo)
+
+	inv := &invoice.GSTInvoice{
+		Invoice: invoice.InvoiceHeader{
+			InvoiceNumber: "INV-BAD-DATE",
+			InvoiceDate:   "not-a-date",
+		},
+		Seller: invoice.Party{
+			Name: "Some Vendor",
+		},
+		Totals: invoice.Totals{
+			TaxableAmount: 1000,
+			CGST:          90,
+			SGST:          90,
+			Total:         1180,
+		},
+	}
+
+	doc := buildTestDocument(t, inv)
+	tenantID := doc.TenantID
+
+	masterRepo.On("FindLedgerByGSTIN", mock.Anything, tenantID, mock.AnythingOfType("string")).
+		Return(nil, domain.ErrNotFound).Maybe()
+	masterRepo.On("FindLedgerByNormalizedName", mock.Anything, tenantID, mock.AnythingOfType("string")).
+		Return(nil, nil).Maybe()
+	masterRepo.On("FindPurchaseLedger", mock.Anything, tenantID).
+		Return(nil, domain.ErrNotFound)
+	masterRepo.On("FindTaxLedger", mock.Anything, tenantID, mock.AnythingOfType("string"), mock.AnythingOfType("float64")).
+		Return(nil, domain.ErrNotFound)
+
+	vDef, err := builder.Build(context.Background(), tenantID, doc)
+	require.NoError(t, err)
+	require.NotNil(t, vDef)
+
+	// Garbage date should fall back to today's date in YYYY-MM-DD format
+	datePattern := regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
+	assert.Regexp(t, datePattern, vDef.VoucherDate)
+	assert.NotEmpty(t, vDef.VoucherDate)
 }

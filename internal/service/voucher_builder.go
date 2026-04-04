@@ -8,6 +8,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -360,11 +361,11 @@ func formatRate(rate float64) string {
 
 // normalizeVoucherDate converts a date string to YYYY-MM-DD format.
 // Handles DD-MM-YYYY, DD/MM/YYYY, and passes through YYYY-MM-DD as-is.
-// Returns empty string if the date cannot be parsed.
+// Returns today's date if the input is empty or unparseable.
 func normalizeVoucherDate(dateStr string) string {
 	dateStr = strings.TrimSpace(dateStr)
 	if dateStr == "" {
-		return ""
+		return todayYMD()
 	}
 
 	// Replace slashes with dashes for uniform parsing
@@ -372,20 +373,36 @@ func normalizeVoucherDate(dateStr string) string {
 
 	parts := strings.Split(dateStr, "-")
 	if len(parts) != 3 {
-		return dateStr // return as-is if unparseable
+		return todayYMD()
 	}
 
 	// If first part is 4 digits, it's already YYYY-MM-DD
 	if len(parts[0]) == 4 {
-		return dateStr
+		if isValidDate(parts[0], parts[1], parts[2]) {
+			return dateStr
+		}
+		return todayYMD()
 	}
 
 	// Otherwise assume DD-MM-YYYY → YYYY-MM-DD
 	if len(parts[2]) == 4 {
-		return parts[2] + "-" + parts[1] + "-" + parts[0]
+		result := parts[2] + "-" + parts[1] + "-" + parts[0]
+		if isValidDate(parts[2], parts[1], parts[0]) {
+			return result
+		}
+		return todayYMD()
 	}
 
-	return dateStr // return as-is if format is unknown
+	return todayYMD()
+}
+
+func todayYMD() string {
+	return time.Now().Format("2006-01-02")
+}
+
+func isValidDate(year, month, day string) bool {
+	_, err := time.Parse("2006-01-02", year+"-"+month+"-"+day)
+	return err == nil
 }
 
 // buildVoucherNarration builds a narration string for the voucher.
