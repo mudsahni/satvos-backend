@@ -56,6 +56,9 @@ func (b *voucherBuilder) Build(ctx context.Context, tenantID uuid.UUID, doc *dom
 
 	// 5. Build narration
 	narration := buildVoucherNarration(&inv)
+	if len(narration) > 500 {
+		narration = narration[:497] + "..."
+	}
 
 	// 6. Normalize voucher date to YYYY-MM-DD (connector expects this format).
 	// LLM parser returns DD-MM-YYYY per prompt instructions.
