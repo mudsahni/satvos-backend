@@ -8,6 +8,8 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
@@ -55,10 +57,15 @@ func (b *voucherBuilder) Build(ctx context.Context, tenantID uuid.UUID, doc *dom
 
 	// 5. Build narration
 	narration := buildVoucherNarration(&inv)
+	if utf8.RuneCountInString(narration) > 500 {
+		runes := []rune(narration)
+		narration = string(runes[:497]) + "..."
+	}
 
 	// 6. Normalize voucher date to YYYY-MM-DD (connector expects this format).
 	// LLM parser returns DD-MM-YYYY per prompt instructions.
-	voucherDate := normalizeVoucherDate(inv.Invoice.InvoiceDate)
+	now := time.Now()
+	voucherDate := clampVoucherDate(normalizeVoucherDate(inv.Invoice.InvoiceDate, now), now)
 
 	// 7. Determine voucher mode.
 	// Mode depends on matched inventory items (not source line items), so the
@@ -69,8 +76,6 @@ func (b *voucherBuilder) Build(ctx context.Context, tenantID uuid.UUID, doc *dom
 	switch {
 	case len(inventoryItems) > 0:
 		voucherMode = domain.VoucherModeItemInvoice
-	case inv.Totals.CGST == 0 && inv.Totals.SGST == 0 && inv.Totals.IGST == 0:
-		voucherMode = domain.VoucherModeJournal
 	default:
 		voucherMode = domain.VoucherModeAccountingInvoice
 	}
@@ -147,6 +152,14 @@ func (b *voucherBuilder) BuildWithOverrides(ctx context.Context, tenantID uuid.U
 				vDef.MatchConfidence[itemKey] = "manual_override"
 				break
 			}
+		}
+	}
+	if overrides.VoucherMode != nil {
+		switch *overrides.VoucherMode {
+		case domain.VoucherModeAccountingInvoice, domain.VoucherModeItemInvoice, domain.VoucherModeJournal:
+			vDef.VoucherMode = *overrides.VoucherMode
+		default:
+			return nil, fmt.Errorf("invalid voucher mode override: %q", *overrides.VoucherMode)
 		}
 	}
 
@@ -332,7 +345,7 @@ func (b *voucherBuilder) matchUOM(ctx context.Context, tenantID uuid.UUID, unit 
 // Rounds to 2 decimal places to avoid floating point noise (e.g., 18.00003 → 18.00).
 // Then snaps to standard GST rates if within 0.1% tolerance.
 func calculateTaxRate(taxAmount, taxableAmount float64) float64 {
-	if taxableAmount == 0 {
+	if math.Abs(taxableAmount) < 0.01 {
 		return 0
 	}
 	raw := (taxAmount / taxableAmount) * 100
@@ -360,11 +373,12 @@ func formatRate(rate float64) string {
 
 // normalizeVoucherDate converts a date string to YYYY-MM-DD format.
 // Handles DD-MM-YYYY, DD/MM/YYYY, and passes through YYYY-MM-DD as-is.
-// Returns empty string if the date cannot be parsed.
-func normalizeVoucherDate(dateStr string) string {
+// Returns now formatted as YYYY-MM-DD if the input is empty or unparseable.
+func normalizeVoucherDate(dateStr string, now time.Time) string {
 	dateStr = strings.TrimSpace(dateStr)
+	today := now.Format("2006-01-02")
 	if dateStr == "" {
-		return ""
+		return today
 	}
 
 	// Replace slashes with dashes for uniform parsing
@@ -372,20 +386,48 @@ func normalizeVoucherDate(dateStr string) string {
 
 	parts := strings.Split(dateStr, "-")
 	if len(parts) != 3 {
-		return dateStr // return as-is if unparseable
+		return today
 	}
 
 	// If first part is 4 digits, it's already YYYY-MM-DD
 	if len(parts[0]) == 4 {
-		return dateStr
+		if isValidDate(parts[0], parts[1], parts[2]) {
+			return dateStr
+		}
+		return today
 	}
 
 	// Otherwise assume DD-MM-YYYY → YYYY-MM-DD
 	if len(parts[2]) == 4 {
-		return parts[2] + "-" + parts[1] + "-" + parts[0]
+		result := parts[2] + "-" + parts[1] + "-" + parts[0]
+		if isValidDate(parts[2], parts[1], parts[0]) {
+			return result
+		}
+		return today
 	}
 
-	return dateStr // return as-is if format is unknown
+	return today
+}
+
+func isValidDate(year, month, day string) bool {
+	_, err := time.Parse("2006-01-02", year+"-"+month+"-"+day)
+	return err == nil
+}
+
+// clampVoucherDate returns now's date if the parsed date is more than 18 months
+// in the past or in the future (beyond tomorrow). This prevents out-of-range Tally errors.
+func clampVoucherDate(dateStr string, now time.Time) string {
+	parsed, err := time.Parse("2006-01-02", dateStr)
+	if err != nil {
+		return now.Format("2006-01-02")
+	}
+	if parsed.Before(now.AddDate(0, -18, 0)) {
+		return now.Format("2006-01-02")
+	}
+	if parsed.After(now.AddDate(0, 0, 1)) {
+		return now.Format("2006-01-02")
+	}
+	return dateStr
 }
 
 // buildVoucherNarration builds a narration string for the voucher.
