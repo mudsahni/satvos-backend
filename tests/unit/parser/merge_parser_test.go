@@ -15,12 +15,11 @@ import (
 	"satvos/mocks"
 )
 
-func makeParseOutput(inv *invoice.GSTInvoice, conf *invoice.ConfidenceScores, model string) *port.ParseOutput {
+func makeParseOutput(inv *invoice.GSTInvoice, model string) *port.ParseOutput {
 	data, _ := json.Marshal(inv)
-	confData, _ := json.Marshal(conf)
 	return &port.ParseOutput{
 		StructuredData:   data,
-		ConfidenceScores: confData,
+		ConfidenceScores: json.RawMessage("{}"),
 		ModelUsed:        model,
 		PromptUsed:       "test prompt",
 	}
@@ -36,16 +35,11 @@ func TestMergeParser_BothSucceed_Agreement(t *testing.T) {
 		Seller:  invoice.Party{Name: "Seller Corp", GSTIN: "29ABCDE1234F1Z5"},
 		Totals:  invoice.Totals{Total: 1000},
 	}
-	conf := invoice.ConfidenceScores{
-		Invoice: invoice.InvoiceConfidence{InvoiceNumber: 0.8, InvoiceDate: 0.8},
-		Seller:  invoice.PartyConfidence{Name: 0.8, GSTIN: 0.8},
-		Totals:  invoice.TotalsConfidence{Total: 0.8},
-	}
 
 	input := port.ParseInput{FileBytes: []byte("test"), ContentType: "application/pdf", DocumentType: "invoice"}
 
-	primary.On("Parse", mock.Anything, input).Return(makeParseOutput(&inv, &conf, "claude"), nil)
-	secondary.On("Parse", mock.Anything, input).Return(makeParseOutput(&inv, &conf, "gemini"), nil)
+	primary.On("Parse", mock.Anything, input).Return(makeParseOutput(&inv, "claude"), nil)
+	secondary.On("Parse", mock.Anything, input).Return(makeParseOutput(&inv, "gemini"), nil)
 
 	result, err := mp.Parse(context.Background(), input)
 
@@ -57,12 +51,6 @@ func TestMergeParser_BothSucceed_Agreement(t *testing.T) {
 	assert.Equal(t, "agree", result.FieldProvenance["invoice.invoice_number"])
 	assert.Equal(t, "agree", result.FieldProvenance["seller.gstin"])
 	assert.Equal(t, "agree", result.FieldProvenance["totals.total"])
-
-	// Confidence should be boosted on agreement
-	var mergedConf invoice.ConfidenceScores
-	err = json.Unmarshal(result.ConfidenceScores, &mergedConf)
-	assert.NoError(t, err)
-	assert.Greater(t, mergedConf.Invoice.InvoiceNumber, 0.8)
 }
 
 func TestMergeParser_BothSucceed_Disagreement(t *testing.T) {
@@ -80,37 +68,22 @@ func TestMergeParser_BothSucceed_Disagreement(t *testing.T) {
 		Seller:  invoice.Party{Name: "Secondary Seller"},
 		Totals:  invoice.Totals{Total: 2000},
 	}
-	pConf := invoice.ConfidenceScores{
-		Invoice: invoice.InvoiceConfidence{InvoiceNumber: 0.9},
-		Seller:  invoice.PartyConfidence{Name: 0.9},
-		Totals:  invoice.TotalsConfidence{Total: 0.9},
-	}
-	sConf := invoice.ConfidenceScores{
-		Invoice: invoice.InvoiceConfidence{InvoiceNumber: 0.7},
-		Seller:  invoice.PartyConfidence{Name: 0.7},
-		Totals:  invoice.TotalsConfidence{Total: 0.7},
-	}
 
 	input := port.ParseInput{FileBytes: []byte("test"), ContentType: "application/pdf", DocumentType: "invoice"}
 
-	primary.On("Parse", mock.Anything, input).Return(makeParseOutput(&pInv, &pConf, "claude"), nil)
-	secondary.On("Parse", mock.Anything, input).Return(makeParseOutput(&sInv, &sConf, "gemini"), nil)
+	primary.On("Parse", mock.Anything, input).Return(makeParseOutput(&pInv, "claude"), nil)
+	secondary.On("Parse", mock.Anything, input).Return(makeParseOutput(&sInv, "gemini"), nil)
 
 	result, err := mp.Parse(context.Background(), input)
 
 	assert.NoError(t, err)
 	assert.NotNil(t, result)
 
-	// On disagreement, primary value should be kept but confidence reduced
+	// On disagreement, primary value should be kept
 	var mergedData invoice.GSTInvoice
 	err = json.Unmarshal(result.StructuredData, &mergedData)
 	assert.NoError(t, err)
 	assert.Equal(t, "INV-001", mergedData.Invoice.InvoiceNumber) // primary kept
-
-	var mergedConf invoice.ConfidenceScores
-	err = json.Unmarshal(result.ConfidenceScores, &mergedConf)
-	assert.NoError(t, err)
-	assert.Less(t, mergedConf.Invoice.InvoiceNumber, 0.9) // confidence reduced
 
 	assert.Equal(t, "disagreement", result.FieldProvenance["invoice.invoice_number"])
 }
@@ -128,19 +101,11 @@ func TestMergeParser_BothSucceed_OneEmpty(t *testing.T) {
 		Invoice: invoice.InvoiceHeader{InvoiceNumber: "INV-001"},
 		Seller:  invoice.Party{Name: "Secondary Seller"}, // secondary has it
 	}
-	pConf := invoice.ConfidenceScores{
-		Invoice: invoice.InvoiceConfidence{InvoiceNumber: 0.9},
-		Seller:  invoice.PartyConfidence{Name: 0.0},
-	}
-	sConf := invoice.ConfidenceScores{
-		Invoice: invoice.InvoiceConfidence{InvoiceNumber: 0.9},
-		Seller:  invoice.PartyConfidence{Name: 0.85},
-	}
 
 	input := port.ParseInput{FileBytes: []byte("test"), ContentType: "application/pdf", DocumentType: "invoice"}
 
-	primary.On("Parse", mock.Anything, input).Return(makeParseOutput(&pInv, &pConf, "claude"), nil)
-	secondary.On("Parse", mock.Anything, input).Return(makeParseOutput(&sInv, &sConf, "gemini"), nil)
+	primary.On("Parse", mock.Anything, input).Return(makeParseOutput(&pInv, "claude"), nil)
+	secondary.On("Parse", mock.Anything, input).Return(makeParseOutput(&sInv, "gemini"), nil)
 
 	result, err := mp.Parse(context.Background(), input)
 
@@ -164,13 +129,11 @@ func TestMergeParser_BothSucceed_GSTINFormatHeuristic(t *testing.T) {
 	sInv := invoice.GSTInvoice{
 		Seller: invoice.Party{GSTIN: "29ABCDE1234F1Z5"}, // valid GSTIN format
 	}
-	pConf := invoice.ConfidenceScores{Seller: invoice.PartyConfidence{GSTIN: 0.7}}
-	sConf := invoice.ConfidenceScores{Seller: invoice.PartyConfidence{GSTIN: 0.8}}
 
 	input := port.ParseInput{FileBytes: []byte("test"), ContentType: "application/pdf", DocumentType: "invoice"}
 
-	primary.On("Parse", mock.Anything, input).Return(makeParseOutput(&pInv, &pConf, "claude"), nil)
-	secondary.On("Parse", mock.Anything, input).Return(makeParseOutput(&sInv, &sConf, "gemini"), nil)
+	primary.On("Parse", mock.Anything, input).Return(makeParseOutput(&pInv, "claude"), nil)
+	secondary.On("Parse", mock.Anything, input).Return(makeParseOutput(&sInv, "gemini"), nil)
 
 	result, err := mp.Parse(context.Background(), input)
 
@@ -192,14 +155,11 @@ func TestMergeParser_PrimaryFails(t *testing.T) {
 	sInv := invoice.GSTInvoice{
 		Invoice: invoice.InvoiceHeader{InvoiceNumber: "INV-001"},
 	}
-	sConf := invoice.ConfidenceScores{
-		Invoice: invoice.InvoiceConfidence{InvoiceNumber: 0.9},
-	}
 
 	input := port.ParseInput{FileBytes: []byte("test"), ContentType: "application/pdf", DocumentType: "invoice"}
 
 	primary.On("Parse", mock.Anything, input).Return(nil, errors.New("primary API error"))
-	secondary.On("Parse", mock.Anything, input).Return(makeParseOutput(&sInv, &sConf, "gemini"), nil)
+	secondary.On("Parse", mock.Anything, input).Return(makeParseOutput(&sInv, "gemini"), nil)
 
 	result, err := mp.Parse(context.Background(), input)
 
@@ -216,13 +176,10 @@ func TestMergeParser_SecondaryFails(t *testing.T) {
 	pInv := invoice.GSTInvoice{
 		Invoice: invoice.InvoiceHeader{InvoiceNumber: "INV-001"},
 	}
-	pConf := invoice.ConfidenceScores{
-		Invoice: invoice.InvoiceConfidence{InvoiceNumber: 0.9},
-	}
 
 	input := port.ParseInput{FileBytes: []byte("test"), ContentType: "application/pdf", DocumentType: "invoice"}
 
-	primary.On("Parse", mock.Anything, input).Return(makeParseOutput(&pInv, &pConf, "claude"), nil)
+	primary.On("Parse", mock.Anything, input).Return(makeParseOutput(&pInv, "claude"), nil)
 	secondary.On("Parse", mock.Anything, input).Return(nil, errors.New("secondary API error"))
 
 	result, err := mp.Parse(context.Background(), input)
@@ -265,13 +222,11 @@ func TestMergeParser_LineItems_SecondaryHasMore(t *testing.T) {
 			{Description: "Item 2", Total: 200},
 		},
 	}
-	pConf := invoice.ConfidenceScores{}
-	sConf := invoice.ConfidenceScores{}
 
 	input := port.ParseInput{FileBytes: []byte("test"), ContentType: "application/pdf", DocumentType: "invoice"}
 
-	primary.On("Parse", mock.Anything, input).Return(makeParseOutput(&pInv, &pConf, "claude"), nil)
-	secondary.On("Parse", mock.Anything, input).Return(makeParseOutput(&sInv, &sConf, "gemini"), nil)
+	primary.On("Parse", mock.Anything, input).Return(makeParseOutput(&pInv, "claude"), nil)
+	secondary.On("Parse", mock.Anything, input).Return(makeParseOutput(&sInv, "gemini"), nil)
 
 	result, err := mp.Parse(context.Background(), input)
 
@@ -300,13 +255,11 @@ func TestMergeParser_LineItems_PrimaryHasMoreOrEqual(t *testing.T) {
 			{Description: "Item 1", Total: 100},
 		},
 	}
-	pConf := invoice.ConfidenceScores{}
-	sConf := invoice.ConfidenceScores{}
 
 	input := port.ParseInput{FileBytes: []byte("test"), ContentType: "application/pdf", DocumentType: "invoice"}
 
-	primary.On("Parse", mock.Anything, input).Return(makeParseOutput(&pInv, &pConf, "claude"), nil)
-	secondary.On("Parse", mock.Anything, input).Return(makeParseOutput(&sInv, &sConf, "gemini"), nil)
+	primary.On("Parse", mock.Anything, input).Return(makeParseOutput(&pInv, "claude"), nil)
+	secondary.On("Parse", mock.Anything, input).Return(makeParseOutput(&sInv, "gemini"), nil)
 
 	result, err := mp.Parse(context.Background(), input)
 
@@ -317,4 +270,130 @@ func TestMergeParser_LineItems_PrimaryHasMoreOrEqual(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, mergedData.LineItems, 2)
 	assert.Equal(t, "primary", result.FieldProvenance["line_items"])
+}
+
+func TestMergeParser_PANFormatTiebreak(t *testing.T) {
+	primary := new(mocks.MockDocumentParser)
+	secondary := new(mocks.MockDocumentParser)
+	mp := parser.NewMergeParser(primary, secondary)
+
+	pInv := invoice.GSTInvoice{Seller: invoice.Party{PAN: "INVALID123"}}
+	sInv := invoice.GSTInvoice{Seller: invoice.Party{PAN: "ABCDE1234F"}} // valid PAN
+
+	input := port.ParseInput{FileBytes: []byte("test"), ContentType: "application/pdf", DocumentType: "invoice"}
+
+	primary.On("Parse", mock.Anything, input).Return(makeParseOutput(&pInv, "claude"), nil)
+	secondary.On("Parse", mock.Anything, input).Return(makeParseOutput(&sInv, "gemini"), nil)
+
+	result, err := mp.Parse(context.Background(), input)
+
+	assert.NoError(t, err)
+
+	var mergedData invoice.GSTInvoice
+	_ = json.Unmarshal(result.StructuredData, &mergedData)
+	assert.Equal(t, "ABCDE1234F", mergedData.Seller.PAN)
+	assert.Equal(t, "secondary_format", result.FieldProvenance["seller.pan"])
+}
+
+func TestMergeParser_DateFormatTiebreak(t *testing.T) {
+	primary := new(mocks.MockDocumentParser)
+	secondary := new(mocks.MockDocumentParser)
+	mp := parser.NewMergeParser(primary, secondary)
+
+	pInv := invoice.GSTInvoice{Invoice: invoice.InvoiceHeader{InvoiceDate: "not-a-date"}}
+	sInv := invoice.GSTInvoice{Invoice: invoice.InvoiceHeader{InvoiceDate: "15-01-2025"}} // valid date
+
+	input := port.ParseInput{FileBytes: []byte("test"), ContentType: "application/pdf", DocumentType: "invoice"}
+
+	primary.On("Parse", mock.Anything, input).Return(makeParseOutput(&pInv, "claude"), nil)
+	secondary.On("Parse", mock.Anything, input).Return(makeParseOutput(&sInv, "gemini"), nil)
+
+	result, err := mp.Parse(context.Background(), input)
+
+	assert.NoError(t, err)
+
+	var mergedData invoice.GSTInvoice
+	_ = json.Unmarshal(result.StructuredData, &mergedData)
+	assert.Equal(t, "15-01-2025", mergedData.Invoice.InvoiceDate)
+	assert.Equal(t, "secondary_format", result.FieldProvenance["invoice.invoice_date"])
+}
+
+func TestMergeParser_StateCodeTiebreak(t *testing.T) {
+	primary := new(mocks.MockDocumentParser)
+	secondary := new(mocks.MockDocumentParser)
+	mp := parser.NewMergeParser(primary, secondary)
+
+	pInv := invoice.GSTInvoice{Seller: invoice.Party{StateCode: "99"}} // invalid
+	sInv := invoice.GSTInvoice{Seller: invoice.Party{StateCode: "29"}} // valid Karnataka
+
+	input := port.ParseInput{FileBytes: []byte("test"), ContentType: "application/pdf", DocumentType: "invoice"}
+
+	primary.On("Parse", mock.Anything, input).Return(makeParseOutput(&pInv, "claude"), nil)
+	secondary.On("Parse", mock.Anything, input).Return(makeParseOutput(&sInv, "gemini"), nil)
+
+	result, err := mp.Parse(context.Background(), input)
+
+	assert.NoError(t, err)
+
+	var mergedData invoice.GSTInvoice
+	_ = json.Unmarshal(result.StructuredData, &mergedData)
+	assert.Equal(t, "29", mergedData.Seller.StateCode)
+	assert.Equal(t, "secondary_format", result.FieldProvenance["seller.state_code"])
+}
+
+func TestMergeParser_CurrencyTiebreak(t *testing.T) {
+	primary := new(mocks.MockDocumentParser)
+	secondary := new(mocks.MockDocumentParser)
+	mp := parser.NewMergeParser(primary, secondary)
+
+	pInv := invoice.GSTInvoice{Invoice: invoice.InvoiceHeader{Currency: "Rupees"}}
+	sInv := invoice.GSTInvoice{Invoice: invoice.InvoiceHeader{Currency: "INR"}}
+
+	input := port.ParseInput{FileBytes: []byte("test"), ContentType: "application/pdf", DocumentType: "invoice"}
+
+	primary.On("Parse", mock.Anything, input).Return(makeParseOutput(&pInv, "claude"), nil)
+	secondary.On("Parse", mock.Anything, input).Return(makeParseOutput(&sInv, "gemini"), nil)
+
+	result, err := mp.Parse(context.Background(), input)
+
+	assert.NoError(t, err)
+
+	var mergedData invoice.GSTInvoice
+	_ = json.Unmarshal(result.StructuredData, &mergedData)
+	assert.Equal(t, "INR", mergedData.Invoice.Currency)
+	assert.Equal(t, "secondary_format", result.FieldProvenance["invoice.currency"])
+}
+
+func TestMergeParser_MathConsistencyTiebreak(t *testing.T) {
+	primary := new(mocks.MockDocumentParser)
+	secondary := new(mocks.MockDocumentParser)
+	mp := parser.NewMergeParser(primary, secondary)
+
+	// Line items have CGST = 45 + 45 = 90
+	lineItems := []invoice.LineItem{
+		{CGSTAmount: 45, SGSTAmount: 45, Total: 590},
+		{CGSTAmount: 45, SGSTAmount: 45, Total: 590},
+	}
+	pInv := invoice.GSTInvoice{
+		LineItems: lineItems,
+		Totals:    invoice.Totals{CGST: 100}, // wrong
+	}
+	sInv := invoice.GSTInvoice{
+		LineItems: lineItems,
+		Totals:    invoice.Totals{CGST: 90}, // matches sum
+	}
+
+	input := port.ParseInput{FileBytes: []byte("test"), ContentType: "application/pdf", DocumentType: "invoice"}
+
+	primary.On("Parse", mock.Anything, input).Return(makeParseOutput(&pInv, "claude"), nil)
+	secondary.On("Parse", mock.Anything, input).Return(makeParseOutput(&sInv, "gemini"), nil)
+
+	result, err := mp.Parse(context.Background(), input)
+
+	assert.NoError(t, err)
+
+	var mergedData invoice.GSTInvoice
+	_ = json.Unmarshal(result.StructuredData, &mergedData)
+	assert.Equal(t, float64(90), mergedData.Totals.CGST)
+	assert.Equal(t, "secondary_format", result.FieldProvenance["totals.cgst"])
 }

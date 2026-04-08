@@ -161,10 +161,23 @@ func (e *Engine) GetValidation(ctx context.Context, tenantID, docID uuid.UUID) (
 		rulesMap[rulesList[i].ID.String()] = &rulesList[i]
 	}
 
-	confidenceMap := flattenConfidenceScores(doc.ConfidenceScores)
-	fieldStatuses := ComputeFieldStatuses(results, rulesMap, confidenceMap)
+	// Compute field trust from provenance + validation + format signals
+	var inv invoice.GSTInvoice
+	if len(doc.StructuredData) > 0 {
+		_ = json.Unmarshal(doc.StructuredData, &inv)
+	}
+	var provenance map[string]string
+	if len(doc.FieldProvenance) > 0 {
+		_ = json.Unmarshal(doc.FieldProvenance, &provenance)
+	}
+	trustMap := ComputeFieldTrust(provenance, results, rulesMap, &inv)
+
+	fieldStatuses := ComputeFieldStatuses(results, rulesMap, trustMap)
 	valSummary, reconSummary := buildSummaries(results, rulesMap)
 	resultItems := buildResultItems(results, rulesMap)
+
+	qualityScore := ParseQualityScore(trustMap, &inv, doc.ValidationStatus)
+	suggestions := BuildReviewSuggestions(fieldStatuses, trustMap, results, rulesMap)
 
 	return &ValidationResponse{
 		DocumentID:            docID,
@@ -174,6 +187,8 @@ func (e *Engine) GetValidation(ctx context.Context, tenantID, docID uuid.UUID) (
 		ReconciliationSummary: reconSummary,
 		Results:               resultItems,
 		FieldStatuses:         fieldStatuses,
+		ParseQualityScore:     qualityScore,
+		ReviewSuggestions:     suggestions,
 	}, nil
 }
 
@@ -186,6 +201,8 @@ type ValidationResponse struct {
 	ReconciliationSummary ReconciliationSummary       `json:"reconciliation_summary"`
 	Results               []ValidationResultItem      `json:"results"`
 	FieldStatuses         map[string]*FieldStatus     `json:"field_statuses"`
+	ParseQualityScore     float64                     `json:"parse_quality_score"`
+	ReviewSuggestions     []ReviewSuggestion          `json:"review_suggestions"`
 }
 
 // ValidationSummary holds aggregate counts of validation results.

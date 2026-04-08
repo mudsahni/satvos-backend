@@ -179,21 +179,45 @@ func parseResponse(body []byte, model, prompt string) (*port.ParseOutput, error)
 
 	text := resp.Content[0].Text
 
-	// Parse the JSON response from the LLM
-	var parsed struct {
-		Data             json.RawMessage `json:"data"`
-		ConfidenceScores json.RawMessage `json:"confidence_scores"`
-	}
-	if err := json.Unmarshal([]byte(text), &parsed); err != nil {
+	structuredData, err := extractStructuredData([]byte(text))
+	if err != nil {
 		return nil, fmt.Errorf("parsing LLM JSON output: %w (raw: %s)", err, truncate(text, 500))
 	}
 
 	return &port.ParseOutput{
-		StructuredData:   parsed.Data,
-		ConfidenceScores: parsed.ConfidenceScores,
+		StructuredData:   structuredData,
+		ConfidenceScores: json.RawMessage("{}"),
 		ModelUsed:        model,
 		PromptUsed:       prompt,
 	}, nil
+}
+
+// extractStructuredData tries bare GSTInvoice JSON first, then falls back
+// to the old {"data": ..., "confidence_scores": ...} wrapper format.
+func extractStructuredData(raw []byte) (json.RawMessage, error) {
+	// Try old wrapper format first (has "data" key)
+	var wrapper struct {
+		Data             json.RawMessage `json:"data"`
+		ConfidenceScores json.RawMessage `json:"confidence_scores"`
+	}
+	if err := json.Unmarshal(raw, &wrapper); err == nil && len(wrapper.Data) > 0 {
+		return wrapper.Data, nil
+	}
+
+	// Try bare format (direct GSTInvoice JSON)
+	var check map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &check); err != nil {
+		return nil, err
+	}
+	// If it has "invoice" or "seller" keys, it's bare format
+	if _, ok := check["invoice"]; ok {
+		return raw, nil
+	}
+	if _, ok := check["seller"]; ok {
+		return raw, nil
+	}
+
+	return nil, fmt.Errorf("unrecognized JSON structure: missing 'data' wrapper and 'invoice' key")
 }
 
 func truncate(s string, maxLen int) string {

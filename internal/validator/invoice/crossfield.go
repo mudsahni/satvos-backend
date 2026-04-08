@@ -3,6 +3,7 @@ package invoice
 import (
 	"context"
 	"fmt"
+	"math"
 
 	"satvos/internal/domain"
 )
@@ -177,6 +178,52 @@ func CrossFieldValidators() []*crossFieldValidator {
 					Passed: passed, FieldPath: "seller.gstin",
 					ExpectedValue: "seller.gstin != buyer.gstin",
 					ActualValue:   fmt.Sprintf("seller=%s, buyer=%s", d.Seller.GSTIN, d.Buyer.GSTIN),
+					Message:       msg,
+				}}
+			},
+		},
+		{
+			ruleKey: "xf.seller.state_name_code", ruleName: "Cross-field: Seller State Name-Code Match",
+			severity: domain.ValidationSeverityWarning,
+			validate: func(d *GSTInvoice) []ValidationResult {
+				return stateNameCodeCheck("seller", d.Seller.State, d.Seller.StateCode)
+			},
+		},
+		{
+			ruleKey: "xf.buyer.state_name_code", ruleName: "Cross-field: Buyer State Name-Code Match",
+			severity: domain.ValidationSeverityWarning,
+			validate: func(d *GSTInvoice) []ValidationResult {
+				return stateNameCodeCheck("buyer", d.Buyer.State, d.Buyer.StateCode)
+			},
+		},
+		{
+			ruleKey: "xf.totals.amount_in_words", ruleName: "Cross-field: Amount in Words Match",
+			severity: domain.ValidationSeverityWarning,
+			validate: func(d *GSTInvoice) []ValidationResult {
+				if d.Totals.AmountInWords == "" || d.Totals.Total == 0 {
+					return []ValidationResult{{
+						Passed: true, FieldPath: "totals.amount_in_words",
+						Message: "Cross-field: Amount in Words Match: fields missing, skipping",
+					}}
+				}
+				parsed, err := ParseIndianAmountWords(d.Totals.AmountInWords)
+				if err != nil {
+					return []ValidationResult{{
+						Passed: true, FieldPath: "totals.amount_in_words",
+						Message: "Cross-field: Amount in Words Match: could not parse amount in words, skipping",
+					}}
+				}
+				diff := math.Abs(parsed - d.Totals.Total)
+				passed := diff <= 1.0
+				msg := "Cross-field: Amount in Words Match: amount in words matches total"
+				if !passed {
+					msg = fmt.Sprintf("Cross-field: Amount in Words Match: parsed %.2f from words but total is %.2f", parsed, d.Totals.Total)
+				}
+				return []ValidationResult{{
+					Passed:        passed,
+					FieldPath:     "totals.amount_in_words",
+					ExpectedValue: fmt.Sprintf("%.2f (±1.00)", d.Totals.Total),
+					ActualValue:   fmt.Sprintf("%.2f", parsed),
 					Message:       msg,
 				}}
 			},

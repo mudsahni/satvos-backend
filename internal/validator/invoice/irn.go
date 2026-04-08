@@ -3,15 +3,15 @@ package invoice
 import (
 	"crypto/sha256"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"satvos/internal/domain"
 )
 
+// Private aliases for the exported patterns in format_patterns.go.
 var (
-	irnPattern    = regexp.MustCompile(`^[0-9a-f]{64}$`)
-	ackNoPattern  = regexp.MustCompile(`^\d+$`)
+	irnPattern   = IRNPattern
+	ackNoPattern = AckNoPattern
 )
 
 // DeriveFinancialYear returns the Indian financial year string (e.g., "2024-25")

@@ -337,9 +337,9 @@ func TestDuplicateValidator_Metadata(t *testing.T) {
 
 // --- Integration checks ---
 
-func TestAllBuiltinValidators_StillReturns56(t *testing.T) {
+func TestAllBuiltinValidators_StillReturns60(t *testing.T) {
 	all := invoice.AllBuiltinValidators()
-	assert.Len(t, all, 56, "Duplicate validator should NOT be in AllBuiltinValidators()")
+	assert.Len(t, all, 60, "Duplicate validator should NOT be in AllBuiltinValidators()")
 }
 
 func TestDuplicateValidator_NoKeyConflict(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"satvos/internal/validator/invoice"
 )
 
-// validInvoice returns a fully-valid *GSTInvoice that passes all 56 validators.
+// validInvoice returns a fully-valid *GSTInvoice that passes all 60 validators.
 // Intrastate (seller/buyer state "29") → CGST+SGST, zero IGST.
 // 1 line item: qty=10, price=100, taxable=1000, CGST=9%/90, SGST=9%/90, total=1180.
 // IRN = SHA-256("29ABCDE1234F1Z5" + "INV-001" + "2024-25")

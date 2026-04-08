@@ -813,19 +813,25 @@ func TestBuiltinValidators_ReconciliationCritical(t *testing.T) {
 	}
 }
 
-func TestEngine_GetValidation_WithConfidenceScores(t *testing.T) {
+func TestEngine_GetValidation_ComputedTrust(t *testing.T) {
 	engine, docRepo, ruleRepo := setupEngine()
 	ctx := context.Background()
 	tenantID := uuid.New()
 	docID := uuid.New()
 
-	confidenceScores := invoice.ConfidenceScores{
-		Seller: invoice.PartyConfidence{
-			GSTIN: 0.3, // low confidence → unsure
-			Name:  0.9, // high confidence → valid
+	// Document with provenance showing disagreement on seller.gstin
+	inv := invoice.GSTInvoice{
+		Seller: invoice.Party{
+			GSTIN: "29ABCDE1234F1Z5",
+			Name:  "Some Seller",
 		},
 	}
-	confJSON, _ := json.Marshal(confidenceScores)
+	data, _ := json.Marshal(inv)
+	provenance := map[string]string{
+		"seller.gstin": "disagreement",
+		"seller.name":  "agree",
+	}
+	provJSON, _ := json.Marshal(provenance)
 
 	doc := &domain.Document{
 		ID:                docID,
@@ -833,8 +839,9 @@ func TestEngine_GetValidation_WithConfidenceScores(t *testing.T) {
 		DocumentType:      "invoice",
 		ValidationStatus:  domain.ValidationStatusValid,
 		ValidationResults: json.RawMessage("[]"),
-		StructuredData:    json.RawMessage("{}"),
-		ConfidenceScores:  confJSON,
+		StructuredData:    data,
+		ConfidenceScores:  json.RawMessage("{}"),
+		FieldProvenance:   provJSON,
 	}
 
 	docRepo.On("GetByID", ctx, tenantID, docID).Return(doc, nil)
@@ -843,8 +850,13 @@ func TestEngine_GetValidation_WithConfidenceScores(t *testing.T) {
 	resp, err := engine.GetValidation(ctx, tenantID, docID)
 
 	assert.NoError(t, err)
+	// Disagreement → low trust → unsure
 	assert.Equal(t, domain.FieldStatusUnsure, resp.FieldStatuses["seller.gstin"].Status)
+	// Agreement → high trust → valid
 	assert.Equal(t, domain.FieldStatusValid, resp.FieldStatuses["seller.name"].Status)
+	// Check new response fields
+	assert.GreaterOrEqual(t, resp.ParseQualityScore, float64(0))
+	assert.NotNil(t, resp.ReviewSuggestions)
 }
 
 // --- Edge cases: empty/malformed structured data ---

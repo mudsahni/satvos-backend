@@ -12,7 +12,7 @@ import (
 )
 
 func TestCrossFieldValidators_Count(t *testing.T) {
-	assert.Len(t, invoice.CrossFieldValidators(), 8)
+	assert.Len(t, invoice.CrossFieldValidators(), 11)
 }
 
 func TestCrossFieldValidators_Metadata(t *testing.T) {

@@ -14,7 +14,7 @@ import (
 )
 
 func TestLogicalValidators_Count(t *testing.T) {
-	assert.Len(t, invoice.LogicalValidators(), 7)
+	assert.Len(t, invoice.LogicalValidators(), 8)
 }
 
 func TestLogicalValidators_Metadata(t *testing.T) {
@@ -392,7 +392,7 @@ func TestAllValidInvoice_PassesAllValidators(t *testing.T) {
 
 func TestAllBuiltinValidators_Count(t *testing.T) {
 	all := invoice.AllBuiltinValidators()
-	assert.Len(t, all, 56, "expected 56 built-in validators, got %d", len(all))
+	assert.Len(t, all, 60, "expected 60 built-in validators, got %d", len(all))
 }
 
 func TestAllBuiltinValidators_UniqueKeys(t *testing.T) {

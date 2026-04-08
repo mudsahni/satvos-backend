@@ -8,6 +8,8 @@ import (
 type FieldStatus struct {
 	Status   domain.FieldValidationStatus `json:"status"`
 	Messages []string                     `json:"messages"`
+	Trust    float64                      `json:"trust"`
+	Reasons  []string                     `json:"reasons"`
 }
 
 // resultWithSeverity pairs a validation result with its rule's severity.
@@ -17,12 +19,12 @@ type resultWithSeverity struct {
 	Message  string
 }
 
-// ComputeFieldStatuses derives per-field validation statuses from results and confidence scores.
-// confidenceMap maps field paths (e.g. "seller.gstin") to confidence float64 values.
+// ComputeFieldStatuses derives per-field validation statuses from results and trust scores.
+// trustMap maps field paths to computed FieldTrustEntry values. Pass nil for backward compat.
 func ComputeFieldStatuses(
 	results []ValidationResultEntry,
 	rules map[string]*domain.DocumentValidationRule,
-	confidenceMap map[string]float64,
+	trustMap map[string]*FieldTrustEntry,
 ) map[string]*FieldStatus {
 	// Group results by field path
 	fieldResults := make(map[string][]resultWithSeverity)
@@ -57,26 +59,39 @@ func ComputeFieldStatuses(
 		if fs.Messages == nil {
 			fs.Messages = []string{}
 		}
+		// Populate trust info if available
+		if trustMap != nil {
+			if te, ok := trustMap[fieldPath]; ok {
+				fs.Trust = te.Trust
+				fs.Reasons = te.Reasons
+			}
+		}
+		if fs.Reasons == nil {
+			fs.Reasons = []string{}
+		}
 		statuses[fieldPath] = fs
 	}
 
-	// For fields with confidence scores but no validation results,
-	// derive status from confidence alone.
-	for fieldPath, confidence := range confidenceMap {
+	// For fields with trust scores but no validation results,
+	// derive status from trust.
+	for fieldPath, te := range trustMap {
 		if _, exists := statuses[fieldPath]; exists {
 			continue
 		}
-		if confidence <= 0.5 {
-			statuses[fieldPath] = &FieldStatus{
-				Status:   domain.FieldStatusUnsure,
-				Messages: []string{},
-			}
-		} else {
-			statuses[fieldPath] = &FieldStatus{
-				Status:   domain.FieldStatusValid,
-				Messages: []string{},
-			}
+		fs := &FieldStatus{
+			Trust:    te.Trust,
+			Reasons:  te.Reasons,
+			Messages: []string{},
 		}
+		if fs.Reasons == nil {
+			fs.Reasons = []string{}
+		}
+		if te.Trust < 0.5 {
+			fs.Status = domain.FieldStatusUnsure
+		} else {
+			fs.Status = domain.FieldStatusValid
+		}
+		statuses[fieldPath] = fs
 	}
 
 	return statuses

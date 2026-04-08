@@ -3,6 +3,7 @@ package invoice
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"satvos/internal/domain"
@@ -218,6 +219,42 @@ func LogicalValidators() []*logicalValidator {
 					})
 				}
 				return results
+			},
+		},
+		{
+			ruleKey: "logic.invoice.type_valid", ruleName: "Logical: Valid Invoice Type",
+			severity: domain.ValidationSeverityWarning,
+			validate: func(d *GSTInvoice) []ValidationResult {
+				if d.Invoice.InvoiceType == "" {
+					return []ValidationResult{{
+						Passed: true, FieldPath: "invoice.invoice_type",
+						Message: "Logical: Valid Invoice Type: field is empty, skipping",
+					}}
+				}
+				normalized := strings.ToLower(strings.TrimSpace(d.Invoice.InvoiceType))
+				normalized = strings.ReplaceAll(normalized, "_", " ")
+				validTypes := map[string]bool{
+					"regular":         true,
+					"sez":             true,
+					"export":          true,
+					"deemed export":   true,
+					"bill of supply":  true,
+					"tax invoice":     true,
+					"credit note":     true,
+					"debit note":      true,
+				}
+				passed := validTypes[normalized]
+				msg := "Logical: Valid Invoice Type: invoice type is recognized"
+				if !passed {
+					msg = fmt.Sprintf("Logical: Valid Invoice Type: '%s' is not a recognized invoice type", d.Invoice.InvoiceType)
+				}
+				return []ValidationResult{{
+					Passed:        passed,
+					FieldPath:     "invoice.invoice_type",
+					ExpectedValue: "one of {Regular, SEZ, Export, Deemed Export, Bill of Supply, Tax Invoice, Credit Note, Debit Note}",
+					ActualValue:   d.Invoice.InvoiceType,
+					Message:       msg,
+				}}
 			},
 		},
 	}
